@@ -1,0 +1,32 @@
+menu "Connectivity Settings"
+
+config WIFI_SSID
+    string "Wi-Fi Network SSID"
+    default "MyWiFi"
+    help
+        SSID of the Access Point for station connection.
+
+config WIFI_PASSWORD
+    string "Wi-Fi Network Password"
+    default "password123"
+    help
+        Password (PSK) of the Access Point.
+
+config MQTT_BROKER_URI
+    string "MQTT Broker URI"
+    default "mqtts://broker.example.com:8883"
+    help
+        Full URI including scheme and port. Ex: mqtts://host:8883
+
+config MQTT_USERNAME
+    string "MQTT Username"
+    default "user"
+    help
+        Username for MQTT authentication.
+
+config MQTT_PASSWORD
+    string "MQTT Password"
+    default "mqttpass"
+    help
+        MQTT user password.
+endmenu
