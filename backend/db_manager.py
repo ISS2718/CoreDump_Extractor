@@ -23,6 +23,7 @@ def create_database():
             CREATE TABLE IF NOT EXISTS devices (
                 mac_address TEXT PRIMARY KEY,
                 current_firmware_id INTEGER,
+                chip_type TEXT,
                 FOREIGN KEY(current_firmware_id) REFERENCES firmwares(firmware_id)
             );""")
             conn.execute("""
