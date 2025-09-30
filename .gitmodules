@@ -1,0 +1,3 @@
+[submodule "backend/damicore"]
+	path = backend/damicore
+	url = https://gitlab.uspdigital.usp.br/kevin.polo/damicore-python3.git
