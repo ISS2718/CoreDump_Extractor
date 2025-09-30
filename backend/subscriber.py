@@ -12,7 +12,7 @@ Comportamento:
 
 Variáveis de ambiente suportadas (opcionais):
     MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_BASE_TOPIC (default 'coredump')
-    COREDUMP_TIMEOUT_SECONDS (default 600), COREDUMP_OUTPUT_DIR (default 'coredumps')
+    COREDUMP_TIMEOUT_SECONDS (default 600), COREDUMP_RAWS_OUTPUT_DIR (default 'coredumps')
     COREDUMP_ACCEPT_BASE64 (default '1'): se habilitado, tenta decodificar partes que aparentem estar em Base64.
 
 Observação: Credenciais estão hardcoded abaixo por simplicidade; recomenda-se mover para env.
@@ -41,6 +41,12 @@ except ImportError:
     logging.error("Erro: db_manager.py não encontrado. Certifique-se de que ele está no mesmo diretório ou no PYTHONPATH.")
     exit(1)
 
+try:
+    from coredump_interpreter import generate_coredump_report_docker, CoreDumpProcessingError
+except ImportError:
+    logging.error("Erro: coredump_interpreter.py não encontrado. Certifique-se de que ele está no mesmo diretório ou no PYTHONPATH.")
+    exit(1)
+
 # ---------------------------- Config / Constantes ----------------------------
 MQTT_HOST = os.getenv("MQTT_HOST", "d7dc78b4d42d49e8a71a4edfcfb1d6ca.s1.eu.hivemq.cloud")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
@@ -48,10 +54,12 @@ MQTT_USER = os.getenv("MQTT_USER", "BACKEND-TEST")
 MQTT_PASS = os.getenv("MQTT_PASS", "1qxe)y~P9U+57C.!")
 BASE_TOPIC = os.getenv("MQTT_BASE_TOPIC", "coredump")
 SESSION_TIMEOUT = int(os.getenv("COREDUMP_TIMEOUT_SECONDS", "600"))
-OUTPUT_DIR = os.getenv("COREDUMP_OUTPUT_DIR", "db/coredumps")
+RAWS_OUTPUT_DIR = os.getenv("COREDUMP_RAWS_OUTPUT_DIR", "db/coredumps/raws")
+REPORTS_OUTPUT_DIR = os.getenv("COREDUMP_REPORTS_OUTPUT_DIR", "db/coredumps/reports")
 ACCEPT_BASE64 = os.getenv("COREDUMP_ACCEPT_BASE64", "1") not in ("0", "false", "False")
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(RAWS_OUTPUT_DIR, exist_ok=True)
+os.makedirs(REPORTS_OUTPUT_DIR, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,11 +132,11 @@ class CoreDumpAssembler:
                 sess.completed = True
                 logging.info("CoreDump completo mac=%s salvo em %s (%d bytes)", mac, filename, len(blob))
                 
-                # processing_thread = threading.Thread(
-                #     target=self.process_and_register_coredump,
-                #     args=(mac, filename, received_at)
-                # )
-                # processing_thread.start()
+                processing_thread = threading.Thread(
+                    target=self.process_and_register_coredump,
+                    args=(mac, filename, received_at)
+                )
+                processing_thread.start()
 
                 return filename
         return None
@@ -139,9 +147,9 @@ class CoreDumpAssembler:
         except Exception:
             tz_sp = timezone(timedelta(hours=-3))
 
-        ts = datetime.fromtimestamp(received_at, tz=tz_sp).strftime("%Y%m%d_%H%M%S")
-        safe_mac = mac.replace(":", "_").replace("-", "_")
-        filename = os.path.join(OUTPUT_DIR, f"coredump_{safe_mac}_{ts}.cdmp")
+        ts = datetime.fromtimestamp(received_at, tz=tz_sp).strftime("%Y-%m-%d_%H-%M-%S")
+        safe_mac = mac.replace(":", "").replace("-", "").upper()
+        filename = os.path.join(RAWS_OUTPUT_DIR, f"{ts}_{safe_mac}.cdmp")
         with open(filename, "wb") as f:
             f.write(data)
         return filename
@@ -153,7 +161,7 @@ class CoreDumpAssembler:
                 logging.warning("Removendo sessão expirada mac=%s", mac)
                 del self._sessions[mac]
     
-    def process_and_register_coredump(self, mac: str, coredump_filepath: str):
+    def process_and_register_coredump(self, mac: str, coredump_filepath: str, received_at: int):
         """
         Processa um coredump recém-montado: analisa com esptool e registra no BD.
         Esta função é projetada para rodar em uma thread separada para não bloquear o MQTT.
@@ -161,15 +169,17 @@ class CoreDumpAssembler:
         logging.info(f"Iniciando processamento do coredump para o MAC: {mac}")
 
         # 1. Obter informações do dispositivo do banco de dados
-        device_info = db_manager.get_device(mac)
+        device_info = db_manager.get_device(mac) # A tupla é (mac, current_firmware_id, chip_type)
         if not device_info:
             logging.error(f"Dispositivo com MAC {mac} não encontrado. O coredump não será registrado.")
             return
 
-        firmware_id = device_info[1] # A tupla é (mac, current_firmware_id)
+        firmware_id = device_info[1] # Obter o ID do firmware atual
         if not firmware_id:
             logging.error(f"Dispositivo {mac} não tem um firmware associado. Coredump não será registrado.")
             return
+
+        chip_type = device_info[2]  # Obter o tipo de chip
 
         # 2. Obter o caminho do arquivo ELF do firmware a partir do seu ID
         firmware_info = db_manager.get_firmware_by_id(firmware_id)
@@ -184,35 +194,24 @@ class CoreDumpAssembler:
             # Mesmo sem análise, vamos registrar o coredump bruto
             log_filepath = None
         else:
-            # 3. Gerar o arquivo de log (.txt) usando esptool
-            log_filepath = coredump_filepath.replace(".elf", ".txt")
-            command = [
-                "esptool.py", "--chip", "esp32", "elf2info",
-                "-e", firmware_elf_path, coredump_filepath
-            ]
-            logging.info(f"Executando comando: {' '.join(command)}")
-            try:
-                result = subprocess.run(command, capture_output=True, text=True, check=True, encoding='utf-8')
-                with open(log_filepath, "w", encoding='utf-8') as log_file:
-                    log_file.write(result.stdout)
-                logging.info(f"Log de análise do coredump salvo em: {log_filepath}")
-            except FileNotFoundError:
-                logging.error("Erro: 'esptool.py' não encontrado. Verifique se está instalado e no PATH.")
-                log_filepath = None # Análise falhou, não há arquivo de log
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Erro ao executar esptool.py. Stderr:\n{e.stderr}")
-                # Salva o erro no arquivo de log para depuração
-                with open(log_filepath, "w", encoding='utf-8') as log_file:
-                    log_file.write(f"--- FALHA AO ANALISAR COREDUMP ---\n\n")
-                    log_file.write(f"Comando: {' '.join(command)}\n\n")
-                    log_file.write(f"Stderr:\n{e.stderr}")
+            log_filepath = generate_coredump_report_docker(
+                coredump_path=coredump_filepath,
+                elf_path=firmware_elf_path,
+                output_dir=REPORTS_OUTPUT_DIR,
+                chip_type=chip_type,
+                docker_image="espressif/idf:v5.1.2"
+            )
+
+        # 3. Converte o log_filepath para string
+        log_filepath = str(log_filepath).replace("\\", "/") if log_filepath else None
 
         # 4. Adicionar a entrada final no banco de dados
         coredump_id = db_manager.add_coredump(
             device_mac=mac,
             firmware_id=firmware_id,
             raw_dump_path=coredump_filepath,
-            log_path=log_filepath # Pode ser None se a análise falhou
+            log_path=log_filepath,
+            received_at=received_at
         )
 
         if coredump_id:
