@@ -22,7 +22,7 @@ def create_database():
             conn.execute("""
             CREATE TABLE IF NOT EXISTS devices (
                 mac_address TEXT PRIMARY KEY,
-                current_firmware_id INTEGER,
+                current_firmware_id INTEGER NOT NULL,
                 chip_type TEXT,
                 FOREIGN KEY(current_firmware_id) REFERENCES firmwares(firmware_id)
             );""")
@@ -93,13 +93,14 @@ def delete_firmware(firmware_id):
     return True
 
 # --- Funções CRUD para Devices ---
-def add_or_update_device(mac_address, current_firmware_id):
+def add_or_update_device(mac_address, current_firmware_id, chip_type=None):
     query = """
-    INSERT INTO devices (mac_address, current_firmware_id) VALUES (?, ?)
+    INSERT INTO devices (mac_address, current_firmware_id, chip_type) VALUES (?, ?, ?)
     ON CONFLICT(mac_address) DO UPDATE SET
-    current_firmware_id = excluded.current_firmware_id;
+    current_firmware_id = excluded.current_firmware_id,
+    chip_type = excluded.chip_type;
     """
-    _execute_query(query, (mac_address, current_firmware_id))
+    _execute_query(query, (mac_address, current_firmware_id, chip_type))
     return True
 
 def get_device(mac_address):
