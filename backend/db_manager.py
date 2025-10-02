@@ -13,6 +13,7 @@ def create_database():
     os.makedirs(DB_DIRECTORY, exist_ok=True)
     try:
         with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("""
             CREATE TABLE IF NOT EXISTS firmwares (
                 firmware_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,6 +138,10 @@ def delete_cluster(cluster_id):
     _execute_query("DELETE FROM clusters WHERE cluster_id = ?", (cluster_id,))
     return True
 
+def get_cluster_name(cluster_id):
+    result = _execute_query("SELECT name FROM clusters WHERE cluster_id = ?", (cluster_id,), fetch='one')
+    return result[0] if result else None
+
 # --- Funções CRUD para Coredumps ---
 def add_coredump(device_mac, firmware_id, raw_dump_path, log_path=None, received_at=None):
     query = """
@@ -149,12 +154,26 @@ def add_coredump(device_mac, firmware_id, raw_dump_path, log_path=None, received
     coredump_id = _execute_query(query, (device_mac, firmware_id, raw_dump_path, log_path, received_at))
     return coredump_id
 
+def get_clustered_coredumps():
+    """Retorna coredumps que já possuem um cluster associado."""
+    return _execute_query("SELECT coredump_id, cluster_id FROM coredumps WHERE cluster_id IS NOT NULL", fetch='all')
+
 def get_unclustered_coredumps():
     return _execute_query("SELECT * FROM coredumps WHERE cluster_id IS NULL", fetch='all')
+
+def get_coredump_info_by_id(coredump_id):
+    """Busca informações de um coredump, incluindo seu caminho, pelo ID."""
+    query = "SELECT raw_dump_path, log_path FROM coredumps WHERE coredump_id = ?"
+    return _execute_query(query, (coredump_id,), fetch='one')
 
 def assign_cluster_to_coredump(coredump_id, cluster_id):
     _execute_query("UPDATE coredumps SET cluster_id = ? WHERE coredump_id = ?", (cluster_id, coredump_id))
     return True
+
+def unassign_cluster_from_coredumps(cluster_id):
+    """Define cluster_id como NULL para todos os coredumps de um cluster."""
+    print(f"Desassociando coredumps do cluster_id: {cluster_id}")
+    _execute_query("UPDATE coredumps SET cluster_id = NULL WHERE cluster_id = ?", (cluster_id,))
 
 def list_all_coredumps():
     return _execute_query("SELECT * FROM coredumps", fetch='all')
