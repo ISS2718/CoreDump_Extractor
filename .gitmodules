@@ -1,5 +1,0 @@
-[submodule "backend/damicore-python3"]
-	path = backend/damicore-python3
-	url = https://gitlab.uspdigital.usp.br/isaacsantos.soares/damicore-python3.git
-	branch = master
-	
