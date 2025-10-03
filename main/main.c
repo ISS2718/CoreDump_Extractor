@@ -79,7 +79,7 @@ void check_and_upload_coredump(void) {
 
         // 2. Obtém informações do coredump
         coredump_uploader_info_t info;
-        esp_err_t err = coredump_uploader_get_info(&info, 1024, true);
+        esp_err_t err = coredump_uploader_get_info(&info, 0, true);
         if (err != ESP_OK) {
             ESP_LOGI("APP", "Sem coredump ou erro (%s).", esp_err_to_name(err));
             return;
