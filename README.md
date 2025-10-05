@@ -191,12 +191,80 @@ O **Clusterizador** é o cérebro analítico do sistema. Sua função é analisa
 ---
 
 ## Banco de Dados
-### Requisitos
+
+Para um banco de dados mínimo e funcional para nosso sistema de extração remota e classificação de coredups os re
+Este documento define a estrutura de dados mínima e essencial para o sistema de extração remota e classificação de coredumps. O objetivo é estabelecer um esquema de banco de dados que suporte o armazenamento de firmwares, dispositivos, coredumps e os clusters de classificação resultantes, garantindo a rastreabilidade e a integridade das informações.
+
+### Diagrama Entidade-Relacionamento (ER)
+
+Para visualizar as relações, podemos imaginar o seguinte diagrama:
+
+![Diagrama Entidade Relacionamento para um Banco de Dados Mínimo](docs/images/DER_Min_DB.png)
+
+*Legenda: `PK` - Chave Primária, `FK` - Chave Estrangeira, `UK` - Chave Única.*, `||` - Exatamente um, `o{` - Zero ou mais, `|{` - Um ou mais.
+
+### Descrição das Entidades
+
+#### FIRMWARES
+
+Esta entidade funciona como um catálogo de todas as versões de software existentes. Armazenar o **nome** e a **versão** de cada firmware é fundamental para saber exatamente qual código estava em execução quando uma falha ocorreu.
+
+#### DEVICES
+
+Representa cada dispositivo físico (hardware) monitorado pelo sistema. O seu identificador único (`id`, como um MAC Address) é a chave para rastrear a origem de um coredump. O relacionamento com `FIRMWARES` permite saber qual software está ativo em cada dispositivo em tempo real.
+
+#### CLUSTERS
+
+É a entidade central para a funcionalidade de **classificação**. Cada registro em `CLUSTERS` representa um "tipo" de erro ou falha única. Ao agrupar coredumps semelhantes sob o mesmo cluster, o sistema permite identificar a frequência e o impacto de cada bug específico. O `name` do cluster serve como um identificador legível para a falha (ex: "STACK\_OVERFLOW\_WIFI\_TASK").
+
+#### COREDUMPS
+
+Esta é a entidade principal, registrando cada evento de falha individual. Cada coredump está obrigatoriamente ligado ao **dispositivo** que o gerou e ao **firmware** que estava executando no momento da falha. O campo `cluster_id` é `Nullable` (pode ser nulo) porque um coredump é primeiro recebido e só depois classificado. O `file_path` aponta para o local do arquivo de coredump (já interpretado), evitando sobrecarregar o banco de dados.
+
+### Justificativa dos Relacionamentos
+
+Os relacionamentos definem as regras de negócio e garantem a integridade dos dados.
+
+#### `FIRMWARES ||--|{ DEVICES : "executa em"`
+
+  * **Leitura:** Um `FIRMWARE` é executado em um ou mais `DEVICES`.
+  * **Justificativa (1:N):** Este relacionamento de "um para muitos" modela a realidade da implantação de software em IoT. Uma única versão de firmware (ex: `v2.1.0`) é distribuída e executada em centenas ou milhares de dispositivos físicos.
+
+#### `DEVICES ||--o{ COREDUMPS : "gera"`
+
+  * **Leitura:** Um `DEVICE` gera zero ou mais `COREDUMPS`.
+  * **Justificativa (1:N):** Ao longo de sua vida útil, um dispositivo pode falhar várias vezes. Este relacionamento permite manter um histórico completo de todas as falhas ocorridas em um hardware específico, o que é útil para identificar problemas crônicos de hardware ou de uso.
+
+#### `FIRMWARES ||--o{ COREDUMPS : "proveniente de"`
+
+  * **Leitura:** Um `FIRMWARE` é a origem de zero ou mais `COREDUMPS`.
+  * **Justificativa (1:N):** Essencial para a análise de software e interpretação do **coredump**. Este link direto permite agregar todas as falhas relacionadas a uma versão específica do firmware, respondendo a perguntas como: "A versão `v2.1.0` é mais ou menos estável que a `v2.0.0`?".
+
+#### `CLUSTERS ||--|{ COREDUMPS : "pertence a"`
+
+  * **Leitura:** Um `CLUSTER` agrupa um ou mais `COREDUMPS`.
+  * **Justificativa (1:N):** Este é o relacionamento que materializa a classificação. Um tipo de erro específico (o Cluster) pode acontecer repetidamente em diferentes dispositivos e versões de firmware. Agrupar todos esses eventos de **coredump** sob um único cluster permite quantificar a frequência e priorizar a correção dos bugs mais impactantes.
+
+### Fluxo de Dados
+
+1.  **Registro de Firmware/Dispositivo**: Um novo `FIRMWARE` é cadastrado. Um `DEVICE` é registrado e associado a uma versão de firmware.
+2.  **Recebimento do Coredump**:
+      * Um dispositivo envia um coredump.
+      * O sistema cria uma nova entrada na tabela `COREDUMPS`.
+      * Ele preenche o `device_id` e o `firmware_id` com base nas informações do dispositivo que enviou.
+      * O campo `cluster_id` é deixado como `NULL`.
+      * O arquivo do coredump e o *ELF* do `FIRMWARE` gerador, são utilizados para interpretação 
+      * O coredump interpretado é salvo em disco e o caminho é armazenado em `file_path`.
+3.  **Classificação**:
+      * Um processo analisa o coredump recém-chegado.
+      * Se ele corresponde a uma falha já conhecida, seu `cluster_id` é atualizado para o ID do `CLUSTER` existente.
+      * Se for uma falha nova, um novo registro é criado em `CLUSTERS` e o `cluster_id` do coredump é atualizado com o ID do novo cluster.
 
 ---
 
 ## Visualização dos Dados (GUI)
 
+???
 
 --- 
 

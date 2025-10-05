@@ -1,0 +1,34 @@
+---
+config:
+  layout: dagre
+  look: handDrawn
+---
+erDiagram
+	direction TB
+	DEVICES {
+		string id PK "UUID/MAC Address"  
+		int current_firmware_id FK ""  
+	}
+	FIRMWARES {
+		int id PK ""  
+		string name  ""  
+		string version  "" 
+		text elf_path  ""  
+	}
+	COREDUMPS {
+		int id PK ""  
+		string device_id FK ""  
+		int firmware_id FK ""  
+		int cluster_id FK "Nullable"  
+		datetime received_at  ""  
+		text file_path  ""  
+	}
+	CLUSTERS {
+		int id PK ""  
+		string name UK ""  
+	}
+
+	DEVICES||--o{COREDUMPS:"gera"
+	FIRMWARES||--|{DEVICES:"executa"
+	FIRMWARES||--|{COREDUMPS:"proviniente de"
+	CLUSTERS||--|{COREDUMPS:"pertence"
