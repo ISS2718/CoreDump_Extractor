@@ -24,7 +24,7 @@ A arquitetura do módulo foi projetada para ser desacoplada, atuando como um orq
 * **CoreDump Uploader (Este Módulo):** Atua como o cérebro da operação. Ele orquestra o processo: solicita a leitura dos dados à biblioteca do sistema, processa esses dados (divide em chunks, codifica) e os entrega à camada de aplicação através dos callbacks, delegando a responsabilidade da transmissão.
 * **ESP-IDF Core Dump Library:** A biblioteca oficial da Espressif que fornece as APIs de baixo nível para interagir com a partição de coredump na flash (`esp_core_dump_image_get()`, etc.).
 * **Memória Flash:** O componente de hardware onde o coredump fica fisicamente armazenado.
-* **Servidor Remoto:** O destino final para onde os dados do coredump são enviados.
+* **Backend:** O destino final para onde os dados do coredump são enviados para ser interpretado, clusterizado e por fim armazenado.
 
 ### Estruturas de Dados (Structs)
 
@@ -141,18 +141,69 @@ Esta é a função principal que executa todo o processo de upload.
 ---
 
 ## Backend
-### Estrutura mínima
-### Subscriber
-### CoreDump Interpreter
-### CoreDump Clusterizer
-### Cluster Sincronyzer
+
+O backend constitui o núcleo de processamento do sistema, projetado para gerenciar o ciclo de vida completo de um coredump. Sua arquitetura foi concebida de forma modular para isolar as diferentes etapas do tratamento da falha, desde a coleta de dados brutos até a sua análise e classificação.
+
+Esta estrutura é segmentada em três componentes lógicos principais, cada um com um escopo de responsabilidade bem definido dentro do fluxo de processamento:
+
+![Diagrama da Arquitetura do Backend](docs/images/Arch_Backend.png)
+
+- **Receptor**: Atua como a interface primária do sistema, responsável por estabelecer a comunicação com os dispositivos, receber os dados de falha e realizar uma validação inicial.
+- **Interpretador**: Tem a função de traduzir os dados brutos do coredump em um formato estruturado e legível, extraindo as informações técnicas essenciais para o diagnóstico.
+- **Clusterizador**: É o componente analítico, cuja responsabilidade é comparar as falhas interpretadas com uma base de conhecimento existente para agrupar erros recorrentes e identificar anomalias.
+
+### Receptor
+
+O Receptor atua como a porta de entrada (gateway) do backend. Seu objetivo principal é ser a interface de comunicação com os microcontroladores em campo, garantindo que os dados recebidos sejam autênticos e íntegros antes de iniciar o processamento.
+
+![Fluxograma de Funcionamento do Receptor](docs/images/Arch_Backend_Recptor.png)
+
+**Requisitos Funcionais:**
+- Expor um endpoint (por exemplo, uma API HTTP) seguro e estável para o recebimento dos coredumps.
+- Ser capaz de processar requisições contendo dados binários (ou Base64) e metadados associados (como ID do dispositivo, versão do firmware, etc.).
+- Rejeitar dados caso haja algum problema na envio/recepção.
+- Encaminhar o coredump bruto para o módulo Interpretador.
+
+### Interpretador
+
+O **Interpretador** é o componente responsável por traduzir os dados brutos e de baixo nível de um *coredump* em um formato estruturado e legível por humanos. O objetivo é extrair as informações essenciais para a análise da falha.
+
+![Fluxograma de Funcionamento do Interpretador](docs/images/Arch_Backend_Interpretador.png)
+
+**Requisitos Funcionais:**
+* Acessar o arquivo binário do *coredump* encaminhado pelo Receptor.
+* Utilizar os arquivos de depuração (*debugging symbols*), correspondentes à versão do firmware, para mapear os endereços de memória a nomes de funções e linhas de código.
+* Estruturar as informações extraídas em um formato padronizado (como JSON), facilitando o processamento pelo módulo seguinte.
+* Encaminhar as informações extraídas, e padronizadas, para o módulo Clusterizador.
+
+### Clusterizador
+
+O **Clusterizador** é o cérebro analítico do sistema. Sua função é analisar os dados interpretados do *coredump* e agrupá-lo com outras falhas semelhantes, permitindo a deduplicação de erros e a identificação da frequência de cada problema.
+
+![Fluxogram de Funcionamento do Clusterizador](docs/images/Arch_Backend_Clusterizador.png)
+
+**Requisitos Funcionais:**
+* Receber e processar os dados estruturados do Interpretador.
+* Calcular a similaridade entre o novo coredump e os clusters já existentes.
+* Atribuir o coredump a um cluster existente ou criar um novo cluster para a falha.
+* Salvar a associação do coredump ao seu respectivo cluster no banco de dados.
 
 ---
 
 ## Banco de Dados
 ### Requisitos
-### DB Manager
 
 ---
 
 ## Visualização dos Dados (GUI)
+
+
+--- 
+
+## Meu Protótipo
+### MQTT
+### Subscriber
+### CoreDump Interpreter
+### CoreDump Clusterizer
+### Cluster Sincronyzer
+### DB Manager

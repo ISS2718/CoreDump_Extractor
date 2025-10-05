@@ -1,0 +1,20 @@
+---
+config:
+  layout: dagre
+  look: handDrawn
+---
+flowchart LR
+    subgraph Interpretador
+        A["1- Prepara os Artefatos de Análise: Coredump + Arquivo de Símbolos (ELF)"] --> B{"Os Artefatos de Anélise foram encontrados?"};
+        B -- Sim --> C["2- Traduz o coredump em dados estruturados (stack trace, etc.)"];
+        B -- Não --> E["Falha na Interpretação"];
+    end
+
+    Start(Módulo Receptor) -- Referência do Coredump --> A;
+    C -- Encaminha os Dados Estruturados --> End(Módulo Clusterizador);
+
+    %% Estilização
+    style C fill:#c9ffc9,stroke:#333,stroke-width:2px
+    style Start fill:#c9c9ff,stroke:#333,stroke-width:2px
+    style End fill:#c9c9ff,stroke:#333,stroke-width:2px
+    style E fill:#ffc9c9,stroke:#333,stroke-width:2px

@@ -1,0 +1,19 @@
+---
+config:
+  layout: elk
+  look: handDrawn
+---
+flowchart TB
+ subgraph subGraph0["<b>Dispositivo ESP32</b>"]
+        App["Aplicação do Usuário / Camada de Comunicação (Ex: HTTP, MQTT, LoRaWAN)"]
+        CDU["<b>CoreDump Uploader</b>"]
+        ESPIDF["ESP-IDF Core Dump Library"]
+        Flash[("Memória Flash")]
+  end
+    App -- "1- Configura e Inicia Upload" --> CDU
+    CDU -- "2- Solicita Coredump" --> ESPIDF
+    ESPIDF <-- "3- Localiza e Lê o CoreDump" --> Flash
+    CDU -- "4- Envia Coredump" --> App
+    CDU -- "6- Solicita Exclusão" --> ESPIDF
+    ESPIDF -- "7- Apaga Dados" --> Flash
+    App -- "5- Transmite pela Rede" --> Backend("Backend")

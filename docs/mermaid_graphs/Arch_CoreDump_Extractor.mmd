@@ -1,0 +1,13 @@
+---
+config:
+  layout: dagre
+  look: handDrawn
+---
+flowchart TB
+    B("Backend")
+    A["Microcontrolador"]
+    C[("Database")]
+    
+    A -- Envia CoreDump --> B
+    B -- Salva --> C
+    C -- Recupera --> B

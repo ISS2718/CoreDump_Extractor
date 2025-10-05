@@ -1,0 +1,15 @@
+---
+config:
+  layout: dagre
+  look: handDrawn
+---
+flowchart LR
+ subgraph subGraph0["Backend"]
+        A["Receptor"]
+        B["Interpretador"]
+        C["Clusterizador"]
+  end
+    D("Microcontrolador") -- Envia CoreDump --> A
+    A -- Coredump Recebido --> B
+    B -- Coredump Interpretado --> C
+    C -- Armazena --> DB("Banco de Dados")

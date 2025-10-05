@@ -1,0 +1,22 @@
+---
+config:
+  layout: dagre
+  look: handDrawn
+---
+flowchart LR
+    subgraph Módulo Clusterizador
+        A[1- Analisa a falha e compara com clusters existentes] --> B{A falha é nova ou recorrente?};
+        B -- Recorrente --> C[Adciona a um cluster existente];
+        B -- Nova --> D[Cria novo cluster];
+        C --> E[2- Envia resultado para persistência];
+        D --> E;
+    end
+    
+    Start(Interpretador) -- Dados Estruturados --> A;
+    E -- Dados Classificados --> End(Banco de Dados);
+
+    %% Estilização
+    style C fill:#e1c9f4,stroke:#333,stroke-width:2px
+    style D fill:#f4e2c9,stroke:#333,stroke-width:2px
+    style Start fill:#c9c9ff,stroke:#333,stroke-width:2px
+    style End fill:#c9c9ff,stroke:#333,stroke-width:2px
