@@ -1,0 +1,12 @@
+---
+config:
+  layout: dagre
+  look: handDrawn
+---
+flowchart LR
+    Broker["**Broker MQTT**<br/>(Servidor Central)"]
+    Publisher["Publisher<br/>(**ESP32** com falha)"]
+    Subscriber["Subscriber<br/>(**Receptor** de coredumps)"]
+    Subscriber -- "1- Assina o tópico 'coredump/#'" --> Broker
+    Publisher -- "2- Publica o coredump no tópico 'coredump/device_ID_123'" --> Broker
+    Broker -- "3- Encaminha o coredump para o Receptor" --> Subscriber
