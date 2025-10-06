@@ -199,7 +199,7 @@ class CoreDumpAssembler:
                 elf_path=firmware_elf_path,
                 output_dir=REPORTS_OUTPUT_DIR,
                 chip_type=chip_type,
-                docker_image="espressif/idf:v5.1.2"
+                docker_image="espressif/idf:v5.5.1"
             )
 
         # 3. Converte o log_filepath para string

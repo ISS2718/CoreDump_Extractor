@@ -11,7 +11,7 @@ def generate_coredump_report_docker(
     coredump_path: Union[str, Path],
     elf_path: Union[str, Path],
     output_dir: Union[str, Path],
-    docker_image: str = "espressif/idf:v5.1.2",
+    docker_image: str = "espressif/idf:v5.5.1",
     chip_type: str = None
 ) -> Path:
     coredump_file = Path(coredump_path).resolve()
