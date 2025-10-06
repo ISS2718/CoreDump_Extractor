@@ -1,0 +1,35 @@
+---
+config:
+  layout: dagre
+  look: handDrawn
+---
+erDiagram
+	direction LR
+	FIRMWARES {
+		INTEGER firmware_id PK ""  
+		TEXT name  ""  
+		TEXT version  ""  
+		TEXT elf_path  ""  
+	}
+	DEVICES {
+		TEXT mac_address PK ""  
+		INTEGER current_firmware_id FK ""  
+		TEXT chip_type  ""  
+	}
+	CLUSTERS {
+		INTEGER cluster_id PK ""  
+		TEXT name  ""  
+	}
+	COREDUMPS {
+		INTEGER coredump_id PK ""  
+		TEXT device_mac_address FK ""  
+		INTEGER firmware_id_on_crash FK ""  
+		INTEGER cluster_id FK ""  
+		TEXT raw_dump_path  ""  
+		INTEGER received_at  ""  
+	}
+
+	FIRMWARES||--o{DEVICES:"executa"
+	FIRMWARES||--o{COREDUMPS:"proveniente"
+	DEVICES||--|{COREDUMPS:"gerou"
+	CLUSTERS}o--|{COREDUMPS:"agrupa"

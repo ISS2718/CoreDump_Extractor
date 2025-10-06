@@ -201,7 +201,7 @@ Para visualizar as relações, podemos imaginar o seguinte diagrama:
 
 ![Diagrama Entidade Relacionamento para um Banco de Dados Mínimo](docs/images/DER_Min_DB.png)
 
-*Legenda: `PK` - Chave Primária, `FK` - Chave Estrangeira, `UK` - Chave Única.*, `||` - Exatamente um, `o{` - Zero ou mais, `|{` - Um ou mais.
+*Legenda: `PK` - Chave Primária, `FK` - Chave Estrangeira, `UK` - Chave Única, `||` - Exatamente um, `o{` - Zero ou mais, `|{` - Um ou mais.*
 
 ### Descrição das Entidades
 
@@ -344,12 +344,207 @@ A principal vantagem é que o **Broker desacopla** os componentes: a ESP32 em ca
 
 Para a implementação de referência, foi utilizado o broker público e gratuito da HiveMQ. A escolha desta solução se deu por ser uma plataforma robusta, confiável e amplamente utilizada no mercado, o que simplificou a configuração do ambiente e acelerou o desenvolvimento do protótipo.
 
-### Subscriber
+### Receptor (`subscriber.py`)
 
-### CoreDump Interpreter
+O `subscriber.py` corresponde ao componente receptor da arquitetura geral, tendo como papel fundamental reconstruir e iniciar processar os coredumps enviados pelos dispositivos ESP32. Para isso, ele atua como um cliente MQTT que escuta tópicos específicos, gerencia as sessões de transferência de dados particionados e orquestra a análise e o registro final dos coredumps no banco de dados.
 
-### CoreDump Clusterizer
+#### Principais Responsabilidades
 
-### Cluster Sincronyzer
+* **Conexão MQTT Segura:** Estabelece uma conexão segura (TLS) com o broker MQTT para receber os dados dos dispositivos.
+* **Gerenciamento de Sessão:** Inicia e monitora uma sessão para cada coredump em transferência, rastreando as partes recebidas e o total esperado.
+* **Reconstrução de Coredumps:** Agrega as múltiplas partes de um coredump, que são enviadas em mensagens MQTT separadas, para remontar o arquivo binário original.
+* **Processamento Assíncrono:** Após a reconstrução, dispara um processo de análise em uma thread separada para não bloquear o recebimento de novos dados. Este processo utiliza o `coredump_interpreter.py` para gerar um relatório legível.
+* **Persistência de Dados:** Interage com o `db_manager.py` para salvar o caminho do arquivo de coredump bruto, o relatório de análise e associá-los ao dispositivo e firmware correspondentes.
+* **Robustez e Limpeza:** Implementa um mecanismo de *timeout* para descartar sessões incompletas, evitando o consumo indefinido de memória por transferências que nunca terminam.
 
-### DB Manager
+#### Fluxo de Execução
+
+1.  **Início da Sessão:** O subscriber escuta o tópico `coredump/#`. Uma transferência é iniciada quando uma mensagem JSON é recebida no tópico `coredump/<MAC_DO_DISPOSITIVO>`, contendo o número total de partes esperadas (ex: `{"parts": 15}`). Nesse momento, uma nova `CoreDumpSession` é criada.
+
+2.  **Recebimento das Partes:** O dispositivo envia cada parte do coredump em um tópico sequencial, como `coredump/<MAC>/0`, `coredump/<MAC>/1`, etc.
+    * O script possui uma heurística para detectar e decodificar automaticamente partes que possam ter sido enviadas em formato **Base64**, garantindo flexibilidade no firmware do dispositivo.
+
+3.  **Montagem e Salvamento:** Quando todas as partes esperadas são recebidas, a classe `CoreDumpAssembler` ordena as partes e as une, formando o arquivo binário completo do coredump. O arquivo é salvo no diretório configurado (padrão: `db/coredumps/raws/`) com um nome padronizado, incluindo a data, hora e o MAC do dispositivo (ex: `2025-10-05_19-30-00_AABBCCDDEEFF.cdmp`).
+
+4.  **Análise e Registro (em background):**
+    * Imediatamente após salvar o arquivo, uma nova thread é iniciada para a etapa de análise.
+    * O script consulta o banco de dados (`db_manager`) para obter o tipo de chip (ex: `esp32s3`) e o caminho para o arquivo ELF do firmware associado ao dispositivo.
+    * Com essas informações, ele invoca o interpretador por meio do `generate_coredump_report_docker` que retorna o *path* do arquivo resultante.
+    * Finalmente, o `subscriber` chama a função `db_manager.add_coredump` para registrar o coredump no banco de dados, salvando os caminhos para o arquivo bruto e o relatório gerado.
+
+#### Configuração
+
+O comportamento do subscriber pode ser ajustado por meio de variáveis de ambiente, o que facilita sua implantação e configuração em diferentes ambientes (desenvolvimento, produção).
+
+| Variável de Ambiente          | Descrição                                                               | Valor Padrão                                  |
+| ----------------------------- | ----------------------------------------------------------------------- | --------------------------------------------- |
+| `MQTT_HOST`                   | Endereço do broker MQTT.                                                | (Broker URI hardcoded)                          |
+| `MQTT_PORT`                   | Porta do broker MQTT.                                                   | `8883`                                        |
+| `MQTT_USER`                   | Nome de usuário para autenticação.                                      | (Usuário MQQT Hardcoded)                                |
+| `MQTT_PASS`                   | Senha para autenticação.                                                | (Senha MQTT hardcoded)                             |
+| `MQTT_BASE_TOPIC`             | Tópico raiz para escutar os coredumps.                                  | `coredump`                                    |
+| `COREDUMP_TIMEOUT_SECONDS`    | Tempo em segundos para descartar uma sessão de coredump incompleta.      | `600` (10 minutos)                            |
+| `COREDUMP_RAWS_OUTPUT_DIR`    | Diretório para salvar os arquivos binários de coredump reconstruídos.    | `db/coredumps/raws`                           |
+| `COREDUMP_REPORTS_OUTPUT_DIR` | Diretório para salvar os relatórios de análise de coredump.             | `db/coredumps/reports`                        |
+| `COREDUMP_ACCEPT_BASE64`      | Habilita (`1`) ou desabilita (`0`) a tentativa de decodificação de Base64. | `1`                                           |
+
+### Interpretador (`coredump_interpreter.py`)
+
+O `coredump_interpreter.py` corresponde ao componente "Interpretador" da arquitetura geral deste projeto. Ele foi projetado para automatizar a análise de arquivos de coredump brutos (.cdmp) gerados por um ESP32, utilizando o Docker para criar um ambiente consistente e isolado com as ferramentas do ESP-IDF. Essa abordagem elimina a necessidade de instalar a toolchain de desenvolvimento localmente para realizar a interpretação.
+
+O script recebe como entrada um arquivo de coredump bruto e o arquivo ELF correspondente do firmware que estava em execução. Ele então invoca o utilitário `esp-coredump` dentro de um contêiner Docker para gerar um relatório legível, que inclui o backtrace (pilha de chamadas) no momento da falha, o registro dos registradores e a causa do erro.
+
+#### Principais Funcionalidades
+
+  * **Integração com Docker:** Utiliza uma imagem Docker específica do ESP-IDF (`espressif/idf:v5.5.1`) para garantir que a análise seja consistente e reprodutível, independentemente do ambiente da máquina hospedeira.
+  * **Processamento Automatizado:** Orquestra a execução do `esp-coredump` com os parâmetros corretos, montando os arquivos necessários (coredump e ELF) como volumes somente leitura dentro do contêiner.
+  * **Limpeza de Relatório:** O script processa a saída bruta do Docker, extraindo apenas o conteúdo relevante do relatório de coredump (delimitado por `ESP32 CORE DUMP START` e `ESP32 CORE DUMP END`) para gerar um arquivo de texto limpo e focado.
+  * **Suporte a Múltiplos Chips:** Permite a especificação do tipo de chip (ex: `esp32`), o que adiciona o respectivo ROM ELF ao comando de análise, resultando em backtraces mais detalhados que podem incluir funções da ROM interna do microcontrolador.
+  * **Tratamento de Erros Robusto:** Inclui verificação de existência dos arquivos de entrada, tratamento de falhas no comando Docker e um timeout para evitar que o processo fique travado indefinidamente.
+
+#### Como Funciona
+
+O fluxo de execução do script é o seguinte:
+
+1.  **Validação:** Verifica se os caminhos para o arquivo coredump, o arquivo ELF e o diretório de saída existem.
+2.  **Construção do Comando:** Monta dinamicamente o comando `docker run`. Ele mapeia os arquivos locais para o diretório `/app` dentro do contêiner.
+3.  **Execução:** Executa o contêiner Docker, que por sua vez executa o comando `esp-coredump info_corefile` com os arquivos mapeados.
+4.  **Captura e Extração:** Captura a saída padrão (`stdout`) do contêiner. Procura pelos marcadores de início e fim do relatório para extrair apenas a análise do coredump.
+5.  **Salvamento:** Salva o relatório limpo em um arquivo `.txt` no diretório de saída especificado. O nome do arquivo de saída é derivado do nome do arquivo de coredump de entrada.
+6.  **Retorno:** Retorna o `Path` do arquivo de relatório que foi salvo.
+
+#### Função `generate_coredump_report_docker`
+
+Esta é a função principal do script, responsável por orquestrar todo o processo de interpretação do coredump utilizando um contêiner Docker.
+
+```python
+def generate_coredump_report_docker(
+    coredump_path: Union[str, Path],
+    elf_path: Union[str, Path],
+    output_dir: Union[str, Path],
+    docker_image: str = "espressif/idf:v5.1.2",
+    chip_type: str = None
+) -> Path:
+```
+
+**Descrição:**
+
+A função executa o utilitário `esp-coredump` de forma isolada, garantindo que as dependências corretas do ESP-IDF estejam presentes através da imagem Docker. Ela automatiza a montagem dos arquivos necessários, a execução do comando de análise, a captura do resultado e a limpeza do relatório final.
+
+**Parâmetros:**
+
+  * `coredump_path` (`Union[str, Path]`): O caminho completo para o arquivo de coredump bruto (`.cdmp`) a ser analisado.
+  * `elf_path` (`Union[str, Path]`): O caminho completo para o arquivo `.elf` do firmware que gerou o coredump. Este arquivo contém os símbolos de depuração necessários para traduzir os endereços de memória em nomes de funções e linhas de código.
+  * `output_dir` (`Union[str, Path]`): O diretório de destino onde o relatório de texto (`.txt`) gerado será salvo.
+  * `docker_image` (`str`, opcional): A tag da imagem Docker a ser utilizada para a análise. O valor padrão é `"espressif/idf:v5.1.2"` para garantir a reprodutibilidade.
+  * `chip_type` (`str`, opcional): Uma string que define o chip específico (ex: `"esp32"`). Se este parâmetro for fornecido, a função adiciona o ELF da ROM interna do chip ao comando de análise, o que pode resultar em um backtrace mais completo.
+
+**Retorna:**
+
+  * `Path`: Em caso de sucesso, a função retorna um objeto `pathlib.Path` que aponta para o arquivo de relatório (`.txt`) recém-criado.
+
+**Levanta (Raises):**
+
+  * `FileNotFoundError`: Se o arquivo de coredump, o arquivo ELF ou o diretório de saída não forem encontrados nos caminhos especificados.
+  * `CoreDumpProcessingError`: Uma exceção personalizada que é lançada se ocorrer qualquer um dos seguintes problemas durante o processamento:
+      * O comando `docker` não for encontrado no PATH do sistema.
+      * O contêiner Docker retornar um código de erro (execução falhou).
+      * A execução do contêiner demorar mais do que o tempo limite definido (atualmente 120 segundos).
+
+### Clusterizador
+
+Na arquitetura geral do **CoreDump Extractor**, o componente denominado **Clusterizador** é responsável por agrupar coredumps semelhantes de forma não supervisionada. Esta funcionalidade é implementada através da colaboração de dois scripts principais: o `coredump_clustering.py` e o `cluster_sincronyzer.py`.
+
+1.  **`coredump_clustering.py` (O Analista):** Este script executa a análise e o agrupamento dos coredumps. Ele utiliza a *Damicorepy* para processar os dados brutos e gerar um arquivo de saída (e.g., `clusters.csv`) com a proposta da nova organização dos clusters. Ele é o responsável por decidir "quais coredumps pertencem a qual grupo".
+
+2.  **`cluster_sincronyzer.py` (O Sincronizador):** Este script atua na sequência, pegando o resultado gerado pelo analista e o reconciliando com o estado atual armazenado no banco de dados. Sua função é persistir as informações de forma inteligente, preservando o histórico de clusters existentes e gerenciando o ciclo de vida dos agrupamentos.
+
+Juntos, esses dois scripts formam uma solução completa para a clusterização, onde o primeiro gera a inteligência e o segundo a gerencia e a torna persistente no sistema.
+
+#### CoreDump Clusterizer
+
+#### Cluster Sincronyzer
+
+O `cluster_sincronyzer.py` atua como o orquestrador responsável por manter a base de dados de clusters de coredumps sempre atualizada e consistente. Enquanto o `coredump_clustering.py` é responsável por analisar os arquivos de coredump e gerar uma nova proposta de agrupamento, o `cluster_sincronyzer.py` é o módulo que implementa a lógica de "reconciliação": ele compara o estado atual dos clusters no banco de dados com o novo resultado e aplica as mudanças de forma inteligente e persistente.
+
+O principal objetivo deste script é garantir a **estabilidade dos identificadores (IDs) dos clusters** ao longo do tempo. Em vez de simplesmente apagar a clusterização antiga e salvar a nova, ele reconhece clusters que "evoluíram" (ou seja, que mantiveram a maior parte de seus membros), preservando seu histórico e identidade.
+
+##### Principais Funcionalidades
+
+O fluxo de execução do sincronizador é dividido nas seguintes etapas:
+
+1.  **Extração do Estado Atual**: Primeiramente, o script consulta o banco de dados para carregar a estrutura de clusters existente, mapeando cada `cluster_id` para um conjunto de `coredump_ids` que ele contém.
+
+2.  **Carregamento e Tradução dos Novos Clusters**: O script lê o arquivo CSV gerado pelo `coredump_clustering.py`. Como este arquivo contém caminhos de arquivos (`raw_dump_path`), um passo crucial de "tradução" é realizado: cada caminho de arquivo é convertido para seu correspondente `coredump_id` numérico, consultando o banco de dados. Coredumps que estão no CSV mas não no banco de dados são ignorados.
+
+3.  **Reconciliação de Clusters**: Esta é a lógica central do processo. Utilizando o **Coeficiente de Jaccard** (implementado no módulo `jaccard.py`), o script compara cada cluster antigo com cada novo cluster.
+    * Se a similaridade entre um par de clusters (um antigo e um novo) ultrapassar um limiar pré-definido (`LIMIAR_SIMILARIDADE = 0.7`), eles são considerados uma "evolução". O ID do cluster antigo é mantido.
+    * Clusters novos que não encontram um correspondente antigo são marcados para **criação (INSERT)**.
+    * Clusters antigos que não encontram um correspondente novo são marcados para **remoção (DELETE)**.
+
+4.  **Aplicação das Mudanças**: Com base nos resultados da reconciliação, o script executa as seguintes ações no banco de dados:
+    * **DELETE**: Clusters que desapareceram são removidos.
+    * **INSERT**: Novos clusters são criados. Um nome descritivo para cada novo cluster é gerado automaticamente a partir do nome do arquivo de um de seus coredumps membros.
+    * **UPDATE**: As associações de todos os coredumps são atualizadas para refletir a nova estrutura de clusters, utilizando os IDs corretos (seja um ID antigo reutilizado ou um ID recém-criado).
+
+5.  **Geração de Nomes para Novos Clusters**: Para facilitar a identificação humana, quando um novo cluster precisa ser criado, a função `gerar_nome_cluster_de_arquivo` extrai o nome do arquivo de um coredump representante, e utiliza o arquivo para gerar um nome do novo cluster (e.g., `Cluster_meu_arquivo_coredump`).
+
+Ao final do processo, o banco de dados reflete a mais recente e precisa organização dos coredumps em clusters, preservando a identidade dos agrupamentos estáveis e gerenciando de forma controlada o ciclo de vida dos clusters.
+
+### Banco de Dados (`db_manager.py`)
+
+O db_manager.py corresponde ao componente "Banco de Dados" da arquitetura geral deste projeto. Sendo responsável pela persistência e o gerenciamento de todos os dados, centralizando as informações sobre firmwares, dispositivos, coredumps e os resultados do processo de clusterização. Ele atua como uma camada de abstração exclusiva, garantindo que todas as interações com o banco de dados ocorram de maneira controlada e segura.
+
+A tecnologia escolhida foi o **SQLite 3**, um sistema de gerenciamento de banco de dados relacional que é leve, baseado em arquivo e não requer um servidor dedicado. Essa escolha se alinha perfeitamente aos requisitos do projeto, oferecendo robustez e simplicidade operacional.
+
+#### Estrutura do Banco de Dados (Schema)
+
+O `db_manager.py` é responsável por criar e gerenciar um schema com quatro tabelas principais, cujos relacionamentos garantem a integridade e a consistência dos dados:
+
+1. **`firmwares`**: Armazena o registro de cada versão de firmware disponível no sistema.
+    * `firmware_id`: Identificador único (Chave Primária).
+    * `name`, `version`: Nome e versão que identificam unicamente um firmware.
+    * `elf_path`: Caminho para o arquivo ELF correspondente, essencial para a análise do coredump.
+2. **`devices`**: Mapeia os dispositivos físicos (microcontroladores ESP32) monitorados pelo sistema.
+    * `mac_address`: Endereço MAC do dispositivo (Chave Primária).
+    * `current_firmware_id`: Chave estrangeira que aponta para a versão de firmware atualmente instalada no dispositivo.
+    * `chip_type`: Modelo do chip (ex: `ESP32-S3`).
+3.  **`clusters`**: Representa os grupos ou "clusters" de falhas que foram identificados pelo sistema. Cada cluster agrupa coredumps com a mesma causa raiz.
+    * `cluster_id`: Identificador único (Chave Primária).
+    * `name`: Um nome descritivo para o cluster (ex: `Stack_Overflow_MQTT_Task`).
+4. **`coredumps`**: Tabela central que armazena cada evento de coredump recebido. Ela conecta todas as outras entidades.
+    * `coredump_id`: Identificador único (Chave Primária).
+    * `device_mac_address`: Chave estrangeira que identifica o dispositivo que sofreu a falha.
+    * `firmware_id_on_crash`: Chave estrangeira que aponta para a versão do firmware em execução no momento da falha.
+    * `cluster_id`: Chave estrangeira (pode ser `NULL`) que associa o coredump a um cluster após a análise. Um valor `NULL` indica um coredump "não classificado".
+    * `raw_dump_path` e `log_path`: Caminhos para os arquivos físicos do coredump e logs associados.
+    * `received_at`: Timestamp de quando o coredump foi recebido.
+
+##### Diagrama de Entidade-Relacionamento (DER)
+
+O diagrama a seguir ilustra visualmente o relacionamento entre as quatro tabelas principais do banco de dados.
+
+![Diagrama Entidade Relacionamento para um Banco de Dados Implementado](docs/images\DER_SQLite3_DB.png)
+
+*Legenda: `PK` - Chave Primária, `FK` - Chave Estrangeira, `UK` - Chave Única, `||` - Exatamente um, `o{` - Zero ou mais, `|{` - Um ou mais.*
+
+As linhas e seus símbolos descrevem como as tabelas se conectam, representando a lógica de negócio do sistema:
+
+* `FIRMWARES ||--o{ DEVICES`: Um **Firmware** pode ser executado por **zero ou mais** **Dispositivos**. Um **Dispositivo**, por sua vez, executa exatamente **um** firmware atual.
+* `FIRMWARES ||--o{ COREDUMPS`: Um **Firmware** pode ser a origem de **zero ou mais** **Coredumps** (uma versão estável pode nunca gerar falhas). Um **Coredump** sempre se origina de exatamente **uma** versão de firmware.
+* `DEVICES ||--|{ COREDUMPS`: Um **Dispositivo** pode gerar **um ou mais** **Coredumps** ao longo de sua operação. Cada **Coredump** é obrigatoriamente gerado por exatamente **um** dispositivo.
+* `CLUSTERS }o--|{ COREDUMPS`: Um **Cluster** agrupa **um ou mais** **Coredumps** semelhantes. Um **Coredump** pode pertencer a **zero ou um** **Cluster**, o que representa corretamente o estado de "não classificado" quando o `cluster_id` é nulo.
+
+#### Principais Funcionalidades do Módulo
+
+O `db_manager.py` foi projetado para garantir a robustez e a simplicidade na manipulação dos dados:
+
+* **Integridade Referencial**: O uso de `PRAGMA foreign_keys = ON;` garante que o SQLite imponha as restrições de chave estrangeira. Isso impede, por exemplo, que um firmware seja deletado se ainda houver dispositivos ou coredumps associados a ele, prevenindo dados órfãos.
+* **Abstração das Operações (CRUD)**: O módulo fornece funções claras e diretas para Criar, Ler, Atualizar e Deletar registros em cada tabela (ex: `add_firmware`, `get_unclustered_coredumps`, `assign_cluster_to_coredump`). Isso evita que o restante da aplicação precise lidar diretamente com a sintaxe SQL.
+* **Gerenciamento do Ciclo de Vida do Coredump**: As funções `add_coredump`, `get_unclustered_coredumps` e `assign_cluster_to_coredump` implementam o fluxo principal do sistema: um coredump é recebido e salvo como "não classificado" (`cluster_id` é `NULL`), fica disponível para análise e, por fim, é associado a um cluster.
+* **Tratamento de Erros Centralizado**: Uma função auxiliar (`_execute_query`) centraliza a execução de comandos SQL, o gerenciamento de conexões e o tratamento de exceções comuns, como `sqlite3.IntegrityError`, tornando o código mais limpo e confiável.
+
+### Scripts Auxiliares
+#### Add Firmware/Device
+#### Jacard
+#### Cluster Name Generator
