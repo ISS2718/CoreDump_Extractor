@@ -49,13 +49,6 @@ try:
 except ImportError as exc:
     raise ImportError("db_manager.py não encontrado no PYTHONPATH.") from exc
 
-try:
-    from coredump_interpreter import (
-        generate_coredump_report_docker,
-        CoreDumpProcessingError,
-    )
-except ImportError as exc:
-    raise ImportError("coredump_interpreter.py não encontrado no PYTHONPATH.") from exc
 
 # ---------------------------- Config / Constantes ----------------------------
 MQTT_HOST: str = os.getenv(
@@ -78,6 +71,7 @@ ACCEPT_BASE64: bool = os.getenv("COREDUMP_ACCEPT_BASE64", "1") not in (
 DOCKER_IMAGE: str = os.getenv(
     "COREDUMP_PROCESSING_DOCKER_IMAGE", "espressif/idf:v5.5.1"
 )
+PROCESSING_DISABLED: bool = os.getenv("COREDUMP_PROCESSING_DISABLED", "0") in ("1", "true", "True")
 
 RAWS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 REPORTS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -227,28 +221,16 @@ class CoreDumpAssembler:
                 return
             # firmware_info: (id, name, version, elf_path)
             firmware_elf_path = firmware_info[3]
+            log_filepath: Optional[str]
             if not os.path.exists(firmware_elf_path):
                 logger.error("elf.inexistente path=%s mac=%s", firmware_elf_path, mac)
-                log_filepath: Optional[str] = None
+                log_filepath = None
             else:
-                # generate_coredump_report_docker deve internamente gerenciar timeout/subprocesso
-                try:
-                    log_path = generate_coredump_report_docker(
-                        coredump_path=coredump_filepath,
-                        elf_path=firmware_elf_path,
-                        output_dir=str(REPORTS_OUTPUT_DIR),
-                        chip_type=chip_type,
-                        docker_image=DOCKER_IMAGE,
-                    )
-                    log_filepath = (
-                        str(log_path).replace("\\", "/") if log_path else None
-                    )
-                except CoreDumpProcessingError as proc_err:
-                    logger.error("processamento.falha mac=%s erro=%s", mac, proc_err)
-                    log_filepath = None
-                except Exception:  # noqa: BLE001
-                    logger.exception("processamento.erro_inesperado mac=%s", mac)
-                    log_filepath = None
+                log_filepath = run_coredump_analysis(
+                    coredump_path=coredump_filepath,
+                    elf_path=firmware_elf_path,
+                    chip_type=chip_type,
+                )
 
             coredump_id = db_manager.add_coredump(
                 device_mac=mac,
@@ -274,6 +256,43 @@ def get_assembler() -> CoreDumpAssembler:
     if _assembler is None:
         _assembler = CoreDumpAssembler()
     return _assembler
+
+
+# ------------------------- Interpretação de CoreDumps ---------------------
+def run_coredump_analysis(
+    coredump_path: str, elf_path: str, chip_type: Optional[str]
+) -> Optional[str]:
+    """Executa interpretação do coredump se módulo de análise estiver disponível.
+
+    Import dinâmico evita dependência rígida; pode ser desativado via env.
+    Retorna caminho do relatório ou None se indisponível/falha.
+    """
+    if PROCESSING_DISABLED:
+        logger.info("processamento.desativado")
+        return None
+    try:
+        from coredump_interpreter import (  # type: ignore
+            generate_coredump_report_docker,
+            CoreDumpProcessingError,
+        )
+    except ImportError:
+        logger.warning("coredump_interpreter.indisponivel - pulando analise")
+        return None
+    try:
+        report_path = generate_coredump_report_docker(
+            coredump_path=coredump_path,
+            elf_path=elf_path,
+            output_dir=str(REPORTS_OUTPUT_DIR),
+            chip_type=chip_type,
+            docker_image=DOCKER_IMAGE,
+        )
+        return str(report_path).replace("\\", "/") if report_path else None
+    except CoreDumpProcessingError as e:  # type: ignore[name-defined]
+        logger.error("processamento.falha erro=%s", e)
+        return None
+    except Exception:  # noqa: BLE001
+        logger.exception("processamento.excecao_interna")
+        return None
 
 
 def _cleanup_loop() -> None:
