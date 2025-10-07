@@ -56,9 +56,10 @@ except ImportError as exc:  # pragma: no cover - erro crítico de ambiente
     raise SystemExit(1) from exc
 
 try:
-    from jaccard import reconciliar_clusters  # Função central de matching
+    from cluster_reconciler import reconciliar_clusters_misto
+  # Função central de matching
 except ImportError as exc:  # pragma: no cover
-    logger.exception("Módulo jaccard não encontrado.")
+    logger.exception("Módulo cluster_reconciler não encontrado.")
     raise SystemExit(1) from exc
 
 
@@ -95,71 +96,110 @@ def gerar_nome_cluster_de_arquivo(coredump_id: int) -> str:
 
 
 def aplicar_resultados_reconciliacao(
-    mapeamento: Dict[int, Dict[str, int]],
+    mapeamento: Dict[int, Dict[str, any]],
     novos: Iterable[str],
     desaparecidos: Iterable[int],
+    fusoes: List[Dict[str, any]],  # <-- NOVO PARÂMETRO
     coredumps_no_novo_resultado: Dict[int, str],
     clusters_novos: Dict[str, Set[int]],
 ) -> None:
-    """Aplica mutações no banco: remove, cria e reatribui clusters."""
-    logger.info("Aplicando resultados da reconciliação")
+    """Aplica mutações no banco: lida com fusões, remove, cria e reatribui clusters."""
+    logger.info("Aplicando resultados da reconciliação com tratamento de fusões")
 
-    # 1. Remoção de clusters desaparecidos
-    for id_antigo in desaparecidos:
+    # Inicializa conjuntos para rastrear IDs envolvidos em fusões
+    ids_antigos_em_fusao = set()
+    ids_novos_de_fusao = set()
+    ids_para_remover_de_fusoes = []
+
+    # Processa fusões: define sobrevivente e marca clusters a remover
+    for fusao in fusoes:
+        antigos_ids = fusao['antigos']
+        novo_temp_id = fusao['novo_cluster']
+        
+        if not antigos_ids:
+            continue
+
+        sobrevivente_id = min(antigos_ids)  # Escolhe menor ID como sobrevivente
+        para_remover_ids = [aid for aid in antigos_ids if aid != sobrevivente_id]
+        
+        mapeamento[sobrevivente_id] = {
+            'novo_id': novo_temp_id,
+            'tipo': 'fusao'
+        }
+        logger.info(
+            "Fusão detectada: Cluster %s sobrevive e evolui para temp_id %s. Clusters %s serão removidos.",
+            sobrevivente_id, novo_temp_id, para_remover_ids
+        )
+        
+        ids_antigos_em_fusao.update(antigos_ids)
+        ids_novos_de_fusao.add(novo_temp_id)
+        ids_para_remover_de_fusoes.extend(para_remover_ids)
+
+    # Determina clusters a remover (desaparecidos e não sobreviventes de fusão)
+    clusters_a_remover = (set(desaparecidos) - ids_antigos_em_fusao).union(set(ids_para_remover_de_fusoes))
+    # Determina clusters a criar (novos que não vieram de fusão)
+    clusters_a_criar = set(novos) - ids_novos_de_fusao
+
+    # Remove clusters antigos do banco
+    for id_antigo in clusters_a_remover:
         try:
             nome_cluster = get_cluster_name(id_antigo)
-        except Exception:  # Caso o cluster tenha sido removido por outra rotina
-            logger.exception("Falha ao buscar nome de cluster (id=%s) durante remoção", id_antigo)
-            nome_cluster = str(id_antigo)
-        logger.info("Cluster removido id=%s nome=%s", id_antigo, nome_cluster)
-        unassign_cluster_from_coredumps(id_antigo)
-        delete_cluster(id_antigo)
+            logger.info("Cluster removido id=%s nome=%s", id_antigo, nome_cluster)
+            unassign_cluster_from_coredumps(id_antigo)
+            delete_cluster(id_antigo)
+        except Exception:
+            logger.exception("Falha ao remover cluster (id=%s)", id_antigo)
 
-    # 2. Criação de clusters novos (IDs temporários -> IDs DB)
+    # Cria clusters novos no banco e mapeia temp_id para db_id
     mapa_novo_temp_para_db: Dict[str, int] = {}
-    for id_novo_temp in novos:
+    for id_novo_temp in clusters_a_criar:
         coredumps_neste_cluster = clusters_novos.get(id_novo_temp, set())
         if not coredumps_neste_cluster:
             novo_nome = f"{CLUSTER_NOME_VAZIO_PREFIXO}_{id_novo_temp}_{int(time.time())}"
         else:
             id_representante = next(iter(coredumps_neste_cluster))
             novo_nome = gerar_nome_cluster_de_arquivo(id_representante)
+        
         novo_db_id = add_cluster(novo_nome)
         mapa_novo_temp_para_db[id_novo_temp] = novo_db_id
         logger.debug("Cluster novo criado temp_id=%s db_id=%s nome=%s", id_novo_temp, novo_db_id, novo_nome)
 
-    # 3. Atualização (clusters evoluídos mantêm o ID anterior)
+    # Prepara mapeamento final de temp_id para db_id (inclui fusões/evoluções)
     mapa_final_temp_para_db: Dict[str, int] = dict(mapa_novo_temp_para_db)
     for id_antigo_db, info in mapeamento.items():
         id_novo_temp = info["novo_id"]
-        mapa_final_temp_para_db[str(id_novo_temp)] = id_antigo_db  # Reutiliza ID antigo
+        
+        # Se houve divisão, pode ser lista de novos IDs (não implementado)
+        if isinstance(id_novo_temp, list):
+            for sub_id in id_novo_temp:
+                if sub_id not in mapa_final_temp_para_db:
+                    logger.warning("ID de cluster de divisão '%s' não foi pré-criado. Tratando como novo.", sub_id)
+                    # Lógica de criação de cluster aqui, similar ao PASSO 2...
+                    pass # Adicionar lógica de criação se necessário
+            continue
+
+        mapa_final_temp_para_db[str(id_novo_temp)] = id_antigo_db
         nome_antigo = get_cluster_name(id_antigo_db)
         logger.debug(
-            "Cluster evoluído mantém id antigo: db_id=%s (nome=%s) novo_temp_id=%s",
-            id_antigo_db,
-            nome_antigo,
-            id_novo_temp,
+            "Mapeamento de identidade: temp_id=%s herda db_id=%s (nome=%s, tipo=%s)",
+            id_novo_temp, id_antigo_db, nome_antigo, info.get('tipo', 'evolucao')
         )
 
-    # 4. Reatribuição coredumps -> cluster definitivo
+    # Reatribui cada coredump ao cluster correto no banco
     for coredump_id, novo_cluster_temp_id in coredumps_no_novo_resultado.items():
         db_cluster_id = mapa_final_temp_para_db.get(str(novo_cluster_temp_id))
         if db_cluster_id is None:
             logger.warning(
                 "Coredump %s refere-se a cluster temporário não mapeado: %s",
-                coredump_id,
-                novo_cluster_temp_id,
+                coredump_id, novo_cluster_temp_id
             )
             continue
         try:
             assign_cluster_to_coredump(int(coredump_id), db_cluster_id)
-        except ValueError:
-            logger.warning("Coredump id inválido (não inteiro): %s", coredump_id)
-        except Exception:  # pragma: no cover
+        except Exception:
             logger.exception(
                 "Falha ao atribuir coredump id=%s ao cluster id=%s",
-                coredump_id,
-                db_cluster_id,
+                coredump_id, db_cluster_id
             )
 
 
@@ -250,22 +290,24 @@ def processar_reconciliacao(
         logger.warning("Nenhum cluster novo válido carregado; encerrando.")
         return {"status": "finalizado", "mensagem": "Nenhum dado novo para processar."}
 
-    mapeamento, novos, desaparecidos = reconciliar_clusters(
+    mapeamento, novos, desaparecidos, fusoes = reconciliar_clusters_misto(
         clusters_antigos_db,
         clusters_novos,
         similaridade_threshold,
     )
     logger.debug(
-        "Resultado reconciliação: mapeados=%s novos=%s removidos=%s",
+        "Resultado reconciliação: mapeados=%s novos=%s removidos=%s fusões=%s",
         len(mapeamento),
         len(novos),
         len(desaparecidos),
+        len(fusoes),
     )
 
     aplicar_resultados_reconciliacao(
         mapeamento,
         novos,
         desaparecidos,
+        fusoes,
         coredumps_no_novo_resultado,
         clusters_novos,
     )
