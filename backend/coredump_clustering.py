@@ -1,6 +1,8 @@
 import os
 import logging
+from pathlib import Path
 import shutil
+import subprocess
 import time
 from datetime import datetime
 
@@ -10,26 +12,28 @@ except ImportError:
     logging.error("Erro: db_manager.py não encontrado. Certifique-se de que ele está no mesmo diretório ou no PYTHONPATH.")
     exit(1)
 
-# Importa a biblioteca de clusterização
 try:
-    from damicore.damicore import damicore
+    from cluster_sincronyzer import processar_reconciliacao
 except ImportError:
-    logging.error("Erro: damicore.py não encontrado. Certifique-se de que ele está no mesmo diretório ou no PYTHONPATH.")
+    logging.error("Erro: cluster_sincronyzer.py não encontrado. Certifique-se de que ele está no mesmo diretório ou no PYTHONPATH.")
     exit(1)
 
 # --- Configurações do Processador ---
 
+# Imagem Docker da DAMICORE (você pode construir sua própria imagem se necessário) 
+DAMICORE_DOCKER_IMAGE = "damicore-python"
+
 # Gatilho Híbrido:
 # 1. Quantidade Mínima: Dispara se houver pelo menos X novos coredumps
-MIN_NEW_COREDUMPS_TRIGGER = 10
+MIN_NEW_COREDUMPS_TRIGGER = 5
 # 2. Tempo Máximo: Dispara se já passou X segundos desde a última execução (e há pelo menos 1 novo)
 # 86400 segundos = 24 horas
-MAX_TIME_SINCE_LAST_RUN_SECONDS = 86400
+MAX_TIME_SINCE_LAST_RUN_SECONDS = 60 * 5
 
 # Diretórios e Arquivos
 TEMP_PROCESSING_DIR = "db/damicore/processing_temp" # Pasta temporária para o snapshot
-REPORTS_DIR = "db/damicore/reports"     # Pasta para salvar os artefatos da DAMICORE
 STATE_FILE_PATH = "db/damicore/state.txt"           # Arquivo simples para guardar o timestamp da última execução
+CLUSTER_OUTPUT_FILE = "db/damicore/clusters.csv"  # Arquivo de saída padrão da DAMICORE (se não especificado)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +43,11 @@ logging.basicConfig(
 def check_trigger():
     """Verifica se a clusterização deve ser disparada (gatilho híbrido)."""
     print("--- Verificando gatilho para iniciar a clusterização ---")
+
+    all_coredumps = db_manager.list_all_coredumps()
+    if len(all_coredumps) <  2:
+        print("Número insuficiente de coredumps no banco de dados para clusterização (mínimo 2).")
+        return False, 0
 
     unclustered_coredumps = db_manager.get_unclustered_coredumps()
     unclustered_count = len(unclustered_coredumps)
@@ -89,7 +98,7 @@ def prepare_snapshot_directory():
     for dump in all_coredumps:
         # Colunas do DB: coredump_id(0), mac(1), fw_id(2), cluster_id(3), raw_dump_path(4), ...
         coredump_id = dump[0]
-        source_path = dump[4]
+        source_path = dump[5]
 
         if not os.path.exists(source_path):
             print(f"AVISO: Arquivo do coredump ID {coredump_id} não encontrado em '{source_path}'. Pulando.")
@@ -108,77 +117,79 @@ def prepare_snapshot_directory():
     print("Snapshot criado com sucesso.")
     return filename_to_id_map
 
-def run_damicore_clustering():
-    """Executa a DAMICORE no diretório de snapshot."""
-    print("\n--- Executando a clusterização com DAMICORE ---")
-    os.makedirs(REPORTS_DIR, exist_ok=True)
+def run_damicore_clustering_docker():
+    """Executa a DAMICORE dentro de um contêiner Docker."""
+    print("\n--- Executando a clusterização com DAMICORE via Docker ---")
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Monta os argumentos para a DAMICORE
-    args = [
+    # Caminho absoluto no HOST (Windows/Linux)
+    host_project_root = Path.cwd().resolve()
+
+    # Caminhos dentro do contêiner
+    container_workdir = "/app"       # onde o código da DAMICORE está
+    container_data_dir = "/data"     # volume mapeado do host
+    container_processing_dir = f"{container_data_dir}/db/damicore/processing_temp"  # entrada
+    container_cluster_output = f"{container_data_dir}/db/damicore/clusters.csv"  # saída
+
+    # Argumentos para o main.py da DAMICORE
+    damicore_args = [
         "--compressor", "zlib",
         "--level", "9",
-        "--ncd-output", os.path.join(REPORTS_DIR, f"ncd_{timestamp}.csv"),
-        "--tree-output", os.path.join(REPORTS_DIR, f"tree_{timestamp}.newick"),
-        "--graph-image", os.path.join(REPORTS_DIR, f"graph_{timestamp}.png"),
-        "--output", "clusters.out", # Arquivo de saída padrão
-        TEMP_PROCESSING_DIR # O diretório com os dados do snapshot
+        "--output", container_cluster_output,  # saída no host
+        container_processing_dir  # diretório de entrada
     ]
 
+    # Comando 'docker run'
+    command = [
+        "docker", "run",
+        "--rm",
+        "-v", f"{host_project_root}:{container_data_dir}",  # mapeia host → container
+        "-w", container_workdir,
+        DAMICORE_DOCKER_IMAGE,
+        "python3", "main.py",
+        *damicore_args
+    ]
+
+    print(f"  > Executando: {' '.join(command)}")
+    
     try:
-        damicore.main(args)
-        print("DAMICORE executado com sucesso.")
-        return "clusters.out"
+        result = subprocess.run(
+            command, capture_output=True, text=True, check=True, encoding='utf-8', timeout=600
+        )
+        print("Clusterização Docker concluída. Saída:")
+        print(result.stdout)
+        return container_cluster_output.replace(container_data_dir + "/", "")
+    except subprocess.CalledProcessError as e:
+        print(f"ERRO: A execução da DAMICORE via Docker falhou (código {e.returncode}).")
+        print(f"Stderr: {e.stderr}")
+        return None
+    except FileNotFoundError:
+        print("ERRO: Comando 'docker' não encontrado. O Docker está instalado e no PATH do sistema?")
+        return None
     except Exception as e:
-        print(f"ERRO: A execução da DAMICORE falhou: {e}")
+        print(f"ERRO inesperado ao executar o Docker: {e}")
         return None
 
-def process_clustering_results(output_file, filename_to_id_map):
+def process_clustering_results(cluster_csv_path):
     """Lê o arquivo de saída da DAMICORE e atualiza o banco de dados."""
     print("\n--- Processando resultados e atualizando o banco de dados ---")
-    if not os.path.exists(output_file):
-        print(f"ERRO: Arquivo de resultado '{output_file}' não encontrado.")
+    if not os.path.exists(cluster_csv_path):
+        print(f"ERRO: Arquivo de resultado '{cluster_csv_path}' não encontrado.")
         return
 
-    with open(output_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
+    processar_reconciliacao(cluster_csv_path)
 
-            # Formato da linha: "nome_do_cluster: /caminho/para/o/arquivo.cdmp"
-            cluster_name, filepath = line.split(': ')
-            filename = os.path.basename(filepath)
-
-            # 1. Encontrar o ID do coredump a partir do nome do arquivo
-            coredump_id = filename_to_id_map.get(filename)
-            if coredump_id is None:
-                print(f"AVISO: Coredump '{filename}' do resultado não foi encontrado no mapa. Pulando.")
-                continue
-
-            # 2. Verificar se o cluster já existe no DB ou criá-lo
-            cluster_record = db_manager.get_cluster_by_name(cluster_name)
-            if cluster_record:
-                cluster_id = cluster_record[0] # Pega o ID
-            else:
-                print(f"Novo cluster encontrado: '{cluster_name}'. Adicionando ao DB.")
-                cluster_id = db_manager.add_cluster(cluster_name)
-                if cluster_id is None:
-                    print(f"ERRO: Falha ao adicionar o cluster '{cluster_name}' ao DB.")
-                    continue
-            
-            # 3. Associar o coredump ao cluster no DB
-            db_manager.assign_cluster_to_coredump(coredump_id, cluster_id)
-            print(f"Coredump ID {coredump_id} ('{filename}') associado ao cluster '{cluster_name}' (ID: {cluster_id}).")
+    with open(STATE_FILE_PATH, 'w') as f:
+        f.write(str(time.time()))
+    
+    print("\nProcesso de clusterização concluído com sucesso!")
 
 def cleanup():
     """Remove o diretório temporário e arquivos intermediários."""
     print("\n--- Limpando arquivos temporários ---")
     if os.path.exists(TEMP_PROCESSING_DIR):
         shutil.rmtree(TEMP_PROCESSING_DIR)
-    if os.path.exists("clusters.out"):
-        os.remove("clusters.out")
+    if os.path.exists(CLUSTER_OUTPUT_FILE):
+        os.remove(CLUSTER_OUTPUT_FILE)
     print("Limpeza concluída.")
 
 def main():
@@ -190,7 +201,7 @@ def main():
     # Garante que a estrutura do DB está ok
     db_manager.create_database()
 
-    should_run, count = check_trigger()
+    should_run, _ = check_trigger()
     if not should_run:
         return
 
@@ -201,14 +212,11 @@ def main():
             print("Nenhum arquivo para processar. Abortando a execução.")
             return
 
-        # output_file = run_damicore_clustering()
+        output_file = run_damicore_clustering_docker()
 
-        # if output_file:
-        #     process_clustering_results(output_file, filename_to_id_map)
-        #     # Atualiza o timestamp da última execução bem-sucedida
-        #     with open(STATE_FILE_PATH, 'w') as f:
-        #         f.write(str(time.time()))
-        #     print("\nProcesso de clusterização concluído com sucesso!")
+        print(output_file)
+        if output_file:
+            process_clustering_results(output_file,)
 
     except Exception as e:
         print(f"\nERRO CRÍTICO no processo principal: {e}")
@@ -220,8 +228,8 @@ if __name__ == "__main__":
     # Você pode rodar este script periodicamente usando um agendador
     # (como o 'cron' no Linux) ou deixá-lo em um loop com 'time.sleep'.
     # Exemplo de loop simples:
-    # while True:
-    #    main()
-    #    print("\nAguardando 60 segundos para a próxima verificação...\n\n")
-    #    time.sleep(60)
+    while True:
+       main()
+       print("\nAguardando 60 segundos para a próxima verificação...\n\n")
+       time.sleep(60)
     main()
