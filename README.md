@@ -463,6 +463,26 @@ Juntos, esses dois scripts formam uma solução completa para a clusterização,
 
 #### CoreDump Clusterizer
 
+O `coredump_clusterizer.py` atua como o **orquestrador** do processo de análise. Sua principal responsabilidade é gerenciar o ciclo de execução da ferramenta de clusterização (DAMICORE), garantindo que ela seja executada de forma eficiente, isolada e apenas quando necessário. Ele serve como a ponte entre os coredumps brutos armazenados e o `Cluster Sincronyzer`, que precisa dos resultados da análise para atualizar o banco de dados.
+
+Projetado para operar como um serviço de longa duração (daemon), este script monitora o sistema e inicia o processo de clusterização com base em um gatilho híbrido.
+
+##### Principais Funcionalidades
+
+O fluxo de trabalho do orquestrador é dividido nas seguintes etapas:
+
+1.  **Verificação de Gatilho (Trigger):** Para otimizar recursos, a análise não é executada a cada novo coredump. O script só inicia o processo se uma de duas condições for atendida:
+    * **Por Quantidade:** Um número mínimo de novos coredumps não clusterizados foi atingido.
+    * **Por Tempo:** Um tempo máximo pré-definido passou desde a última execução bem-sucedida.
+
+2.  **Criação de Snapshot:** Antes de iniciar a análise, o script cria um "snapshot" dos coredumps em um diretório temporário. Essa abordagem garante que a análise seja realizada em um conjunto de dados isolado e consistente, sem risco de interferir com os arquivos originais.
+
+3.  **Execução da Análise em Contêiner:** A ferramenta DAMICORE é executada dentro de um **contêiner Docker**. Essa técnica garante um ambiente de execução padronizado e encapsulado, eliminando problemas de dependências e garantindo que a análise seja reproduzível. O orquestrador é responsável por iniciar o contêiner, montar os volumes de dados (com o snapshot) e capturar o arquivo de resultado, `clusters.csv`.
+
+4.  **Delegação para o Sincronizador:** Após a conclusão bem-sucedida da análise e a geração do `clusters.csv`, este script **não interpreta os resultados**. Sua tarefa termina ao invocar o `cluster_sincronyzer.py`, passando o arquivo gerado como entrada. Nesse ponto, o Sincronizador assume a responsabilidade pela lógica de reconciliação e persistência no banco de dados.
+
+5.  **Atualização de Estado e Limpeza:** Ao final, o script atualiza um arquivo de estado com o timestamp da execução (para o gatilho de tempo) e remove o diretório de snapshot temporário, deixando o sistema limpo para o próximo ciclo.
+
 #### Cluster Sincronyzer
 
 O `cluster_sincronyzer.py` atua como o orquestrador responsável por manter a base de dados de clusters de coredumps sempre atualizada e consistente. Enquanto o `coredump_clustering.py` é responsável por analisar os arquivos de coredump e gerar uma nova proposta de agrupamento, o `cluster_sincronyzer.py` é o módulo que implementa a lógica de "reconciliação": ele compara o estado atual dos clusters no banco de dados com o novo resultado e aplica as mudanças de forma inteligente e persistente.
@@ -473,21 +493,27 @@ O principal objetivo deste script é garantir a **estabilidade dos identificador
 
 O fluxo de execução do sincronizador é dividido nas seguintes etapas:
 
-1.  **Extração do Estado Atual**: Primeiramente, o script consulta o banco de dados para carregar a estrutura de clusters existente, mapeando cada `cluster_id` para um conjunto de `coredump_ids` que ele contém.
+1.  **Extração do Estado Atual:** Primeiramente, o script consulta o banco de dados para carregar a estrutura de clusters existente, mapeando cada `cluster_id` para um conjunto de `coredump_ids` que ele contém.
 
-2.  **Carregamento e Tradução dos Novos Clusters**: O script lê o arquivo CSV gerado pelo `coredump_clustering.py`. Como este arquivo contém caminhos de arquivos (`raw_dump_path`), um passo crucial de "tradução" é realizado: cada caminho de arquivo é convertido para seu correspondente `coredump_id` numérico, consultando o banco de dados. Coredumps que estão no CSV mas não no banco de dados são ignorados.
+2.  **Carregamento e Tradução dos Novos Clusters:** O script lê o arquivo CSV gerado pelo `coredump_clustering.py`. Como este arquivo contém caminhos de arquivos (`raw_dump_path`), um passo crucial de "tradução" é realizado: cada caminho de arquivo é convertido para seu correspondente `coredump_id` numérico, consultando o banco de dados. Coredumps que estão no CSV mas não no banco de dados são ignorados.
 
-3.  **Reconciliação de Clusters**: Esta é a lógica central do processo. Utilizando o **Coeficiente de Jaccard** (implementado no módulo `jaccard.py`), o script compara cada cluster antigo com cada novo cluster.
-    * Se a similaridade entre um par de clusters (um antigo e um novo) ultrapassar um limiar pré-definido (`LIMIAR_SIMILARIDADE = 0.7`), eles são considerados uma "evolução". O ID do cluster antigo é mantido.
-    * Clusters novos que não encontram um correspondente antigo são marcados para **criação (INSERT)**.
-    * Clusters antigos que não encontram um correspondente novo são marcados para **remoção (DELETE)**.
+3.  **Reconciliação de Clusters:** Esta é a lógica central do processo, implementada no módulo **`cluster_reconciler.py`**. Em vez de uma simples comparação de similaridade, o script executa uma análise sofisticada para classificar a **evolução** de cada cluster. Utilizando uma heurística mista que combina o **Índice de Jaccard** (para medir a semelhança geral) e o **Coeficiente de Sobreposição** (para detectar inclusões), o reconciliador compara cada cluster antigo com os novos. Com base em limiares pré-definidos, ele identifica e categoriza as seguintes transições:
+    * **`Evolução Estável`:** O cluster manteve a grande maioria de seus membros. O ID do cluster antigo é mantido.
+    * **`Crescimento`:** O cluster antigo foi quase totalmente absorvido por um novo cluster muito maior. O ID antigo também é preservado.
+    * **`Divisão (Split)`:** Um cluster antigo se fragmentou em múltiplos clusters novos.
+    * **`Fusão (Merge)`:** Vários clusters antigos se uniram para formar um único cluster novo.
+    * **`Mudança Drástica`**, **`Novo`** ou **`Desaparecido`:** Classificações para clusters que sofreram grandes alterações, surgiram sem correspondência ou deixaram de existir.
 
-4.  **Aplicação das Mudanças**: Com base nos resultados da reconciliação, o script executa as seguintes ações no banco de dados:
-    * **DELETE**: Clusters que desapareceram são removidos.
-    * **INSERT**: Novos clusters são criados. Um nome descritivo para cada novo cluster é gerado automaticamente a partir do nome do arquivo de um de seus coredumps membros.
-    * **UPDATE**: As associações de todos os coredumps são atualizadas para refletir a nova estrutura de clusters, utilizando os IDs corretos (seja um ID antigo reutilizado ou um ID recém-criado).
+    Essa abordagem permite que o sistema não apenas atualize o banco de dados, mas também compreenda *como* os agrupamentos de falhas estão mudando ao longo do tempo, preservando a identidade de clusters estáveis e gerenciando seu ciclo de vida de forma inteligente.
 
-5.  **Geração de Nomes para Novos Clusters**: Para facilitar a identificação humana, quando um novo cluster precisa ser criado, a função `gerar_nome_cluster_de_arquivo` extrai o nome do arquivo de um coredump representante, e utiliza o arquivo para gerar um nome do novo cluster (e.g., `Cluster_meu_arquivo_coredump`).
+    **OBS:** A mudança drástica é aplicada no banco da mesma forma que uma evolução estável. Isso garante que o cluster antigo preserve seu ID e histórico, evitando que seja tratado como “desaparecido” e que o sistema crie um cluster totalmente novo sem necessidade.
+
+4.  **Aplicação das Mudanças:** Com base nos resultados da reconciliação, o script executa as seguintes ações no banco de dados:
+    * **DELETE:** Clusters que desapareceram são removidos.
+    * **INSERT:** Novos clusters são criados. Um nome descritivo para cada novo cluster é gerado automaticamente a partir do nome do arquivo de um de seus coredumps membros.
+    * **UPDATE:** As associações de todos os coredumps são atualizadas para refletir a nova estrutura de clusters, utilizando os IDs corretos (seja um ID antigo reutilizado ou um ID recém-criado).
+
+5.  **Geração de Nomes para Novos Clusters:** Para facilitar a identificação humana, quando um novo cluster precisa ser criado, a função `gerar_nome_cluster_de_arquivo` extrai o nome do arquivo de um coredump representante, e utiliza o arquivo para gerar um nome do novo cluster (e.g., `Cluster_meu_arquivo_coredump`).
 
 Ao final do processo, o banco de dados reflete a mais recente e precisa organização dos coredumps em clusters, preservando a identidade dos agrupamentos estáveis e gerenciando de forma controlada o ciclo de vida dos clusters.
 
@@ -501,18 +527,18 @@ A tecnologia escolhida foi o **SQLite 3**, um sistema de gerenciamento de banco 
 
 O `db_manager.py` é responsável por criar e gerenciar um schema com quatro tabelas principais, cujos relacionamentos garantem a integridade e a consistência dos dados:
 
-1. **`firmwares`**: Armazena o registro de cada versão de firmware disponível no sistema.
+1. **`firmwares`:** Armazena o registro de cada versão de firmware disponível no sistema.
     * `firmware_id`: Identificador único (Chave Primária).
     * `name`, `version`: Nome e versão que identificam unicamente um firmware.
     * `elf_path`: Caminho para o arquivo ELF correspondente, essencial para a análise do coredump.
-2. **`devices`**: Mapeia os dispositivos físicos (microcontroladores ESP32) monitorados pelo sistema.
+2. **`devices`:** Mapeia os dispositivos físicos (microcontroladores ESP32) monitorados pelo sistema.
     * `mac_address`: Endereço MAC do dispositivo (Chave Primária).
     * `current_firmware_id`: Chave estrangeira que aponta para a versão de firmware atualmente instalada no dispositivo.
     * `chip_type`: Modelo do chip (ex: `ESP32-S3`).
-3.  **`clusters`**: Representa os grupos ou "clusters" de falhas que foram identificados pelo sistema. Cada cluster agrupa coredumps com a mesma causa raiz.
+3.  **`clusters`:** Representa os grupos ou "clusters" de falhas que foram identificados pelo sistema. Cada cluster agrupa coredumps com a mesma causa raiz.
     * `cluster_id`: Identificador único (Chave Primária).
     * `name`: Um nome descritivo para o cluster (ex: `Stack_Overflow_MQTT_Task`).
-4. **`coredumps`**: Tabela central que armazena cada evento de coredump recebido. Ela conecta todas as outras entidades.
+4. **`coredumps`:** Tabela central que armazena cada evento de coredump recebido. Ela conecta todas as outras entidades.
     * `coredump_id`: Identificador único (Chave Primária).
     * `device_mac_address`: Chave estrangeira que identifica o dispositivo que sofreu a falha.
     * `firmware_id_on_crash`: Chave estrangeira que aponta para a versão do firmware em execução no momento da falha.
@@ -539,12 +565,72 @@ As linhas e seus símbolos descrevem como as tabelas se conectam, representando 
 
 O `db_manager.py` foi projetado para garantir a robustez e a simplicidade na manipulação dos dados:
 
-* **Integridade Referencial**: O uso de `PRAGMA foreign_keys = ON;` garante que o SQLite imponha as restrições de chave estrangeira. Isso impede, por exemplo, que um firmware seja deletado se ainda houver dispositivos ou coredumps associados a ele, prevenindo dados órfãos.
-* **Abstração das Operações (CRUD)**: O módulo fornece funções claras e diretas para Criar, Ler, Atualizar e Deletar registros em cada tabela (ex: `add_firmware`, `get_unclustered_coredumps`, `assign_cluster_to_coredump`). Isso evita que o restante da aplicação precise lidar diretamente com a sintaxe SQL.
-* **Gerenciamento do Ciclo de Vida do Coredump**: As funções `add_coredump`, `get_unclustered_coredumps` e `assign_cluster_to_coredump` implementam o fluxo principal do sistema: um coredump é recebido e salvo como "não classificado" (`cluster_id` é `NULL`), fica disponível para análise e, por fim, é associado a um cluster.
-* **Tratamento de Erros Centralizado**: Uma função auxiliar (`_execute_query`) centraliza a execução de comandos SQL, o gerenciamento de conexões e o tratamento de exceções comuns, como `sqlite3.IntegrityError`, tornando o código mais limpo e confiável.
+* **Integridade Referencial:** O uso de `PRAGMA foreign_keys = ON;` garante que o SQLite imponha as restrições de chave estrangeira. Isso impede, por exemplo, que um firmware seja deletado se ainda houver dispositivos ou coredumps associados a ele, prevenindo dados órfãos.
+* **Abstração das Operações (CRUD):** O módulo fornece funções claras e diretas para Criar, Ler, Atualizar e Deletar registros em cada tabela (ex: `add_firmware`, `get_unclustered_coredumps`, `assign_cluster_to_coredump`). Isso evita que o restante da aplicação precise lidar diretamente com a sintaxe SQL.
+* **Gerenciamento do Ciclo de Vida do Coredump:** As funções `add_coredump`, `get_unclustered_coredumps` e `assign_cluster_to_coredump` implementam o fluxo principal do sistema: um coredump é recebido e salvo como "não classificado" (`cluster_id` é `NULL`), fica disponível para análise e, por fim, é associado a um cluster.
+* **Tratamento de Erros Centralizado:** Uma função auxiliar (`_execute_query`) centraliza a execução de comandos SQL, o gerenciamento de conexões e o tratamento de exceções comuns, como `sqlite3.IntegrityError`, tornando o código mais limpo e confiável.
 
 ### Scripts Auxiliares
 #### Add Firmware/Device
-#### Jacard
+
+Um Script simples para adição de firmwares e devices no banco de dados.
+**OBS:** por enquanto feito somente para testes... (pode ser unificado ao visualizador)
+
+#### Cluster Reconciler (`cluster_reconciler.py`)
+
+O `cluster_reconciler.py` é o módulo responsável pela lógica de "reconciliação". Sua função é comparar o resultado de duas clusterizações — uma anterior ("antiga") e uma atual ("nova") — para entender como os agrupamentos de coredumps evoluíram ao longo do tempo.
+
+O objetivo principal é preservar a identidade de clusters que permanecem estáveis ou que crescem, em vez de simplesmente descartar a organização antiga. Isso permite um acompanhamento histórico da frequência e do comportamento das falhas. Para alcançar essa análise, o reconciliador utiliza duas métricas principais combinadas com uma heurística de classificação.
+
+##### Métricas Fundamentais
+
+Para quantificar a relação entre um cluster antigo (conjunto $A$) e um novo (conjunto $B$), o script se baseia em duas métricas complementares:
+
+1.  **Índice de Jaccard:** Mede a similaridade geral entre os dois conjuntos. Um valor alto (próximo de 1) indica que os dois clusters são compostos praticamente pelos mesmos coredumps.
+    $$J(A,B) = \frac{|A \cap B|}{|A \cup B|}$$
+
+2.  **Coeficiente de Sobreposição (Overlap):** Mede o quão completamente o menor conjunto está contido no maior. É ideal para identificar relações de superconjunto (superset), como o crescimento de um cluster. Um valor alto (próximo de 1) significa que o cluster menor foi quase que totalmente "absorvido" pelo maior.
+    $$O(A,B) = \frac{|A \cap B|}{\min(|A|, |B|)}$$
+
+##### Heurística de Classificação da Evolução
+
+Ao combinar os resultados de Jaccard e Overlap com limiares pré-definidos, o reconciliador classifica a transição de cada cluster, fornecendo uma visão semântica das mudanças:
+
+* **`Evolução Estável`:** Ocorre quando tanto o **Jaccard** quanto o **Overlap** são muito altos. Indica que o cluster permaneceu praticamente o mesmo entre as duas execuções.
+
+* **`Crescimento`:** Identificado por um **Overlap** muito alto, mas um **Jaccard** menor. Isso acontece quando um cluster antigo está quase inteiramente contido em um novo cluster significativamente maior.
+
+* **`Divisão (Split)`:** Um cluster antigo não tem uma correspondência forte com nenhum cluster novo individualmente. No entanto, a **união de vários clusters novos** consegue cobrir a maior parte dos membros do cluster antigo original.
+
+* **`Fusão (Merge)`:** O inverso da divisão. Um novo cluster é formado majoritariamente pela **união de membros de vários clusters antigos** diferentes.
+
+* **`Mudança Drástica`:** A ligação entre o cluster antigo e o novo é intermediária (Overlap e Jaccard moderados). Há uma continuidade parcial, mas a mudança foi muito grande para ser classificada como evolução ou crescimento.
+
+* **`Desaparecido` ou `Novo`:** Um cluster é classificado assim quando não há nenhuma correspondência com similaridade relevante (Jaccard e Overlap baixos) no outro estado.
+
+##### Funções Principais
+###### Modo Simples (Apenas Jaccard)
+
+Algoritmo:
+1. Para cada cluster antigo, calcular Jaccard com todos os novos.
+2. Selecionar a melhor correspondência (maior Jaccard).
+3. Se a similaridade ≥ `LIMIAR_SIMILARIDADE` → evolução.
+4. Novos não usados em nenhum mapeamento → "clusters novos".
+5. Antigos sem correspondência acima do limiar → "desaparecidos".
+
+Complexidade: \( O(N_{antigos} * N_{novos}) \). Conjuntos são `set`, logo interseção/uniao custam \( O(|A| + |B|) \), aceitável para tamanhos moderados.
+
+###### Modo Misto (Jaccard + Overlap + Heurísticas)
+
+Pipeline:
+1. Pré-cálculo de métricas para cada par que tenha interseção não vazia.
+2. Para cada cluster antigo, ordenar candidatos por `(overlap, jaccard, inter_size)`.
+3. Aplicar regras hierárquicas:
+   - Evolução Estável: `overlap ≥ 0.9` e `jaccard ≥ 0.7`.
+   - Crescimento: `overlap ≥ 0.9` e `jaccard ≥ 0.4`.
+   - Divisão: ausência de overlap alto; vários novos cobrem ≥ 80% do antigo.
+   - Mudança Drástica: `overlap ≥ 0.5` e `jaccard ≥ 0.4` (sem critérios anteriores).
+4. Fusão (passo separado): para cada novo, checar múltiplos antigos com `overlap ≥ 0.5` cobrindo ≥ 80% do novo.
+5. Antigos não classificados → desaparecidos. Novos não citados → novos.
+
 #### Cluster Name Generator
