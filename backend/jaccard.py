@@ -139,13 +139,12 @@ def exibir_resultados(mapeamento, novos, desaparecidos):
 def criar_arquivos_de_exemplo():
     """Cria os arquivos CSV de exemplo para demonstração."""
     dados_antigos = [
-        [" ", " "]
-        # ['coredump_001.bin', '0'],
-        # ['coredump_002.bin', '0'],
-        # ['coredump_003.bin', '1'],
-        # ['coredump_004.bin', '0'],
-        # ['coredump_005.bin', '1'],
-        # ['coredump_008.bin', '2'], # Cluster que irá desaparecer
+        ['coredump_001.bin', '0'],
+        ['coredump_002.bin', '0'],
+        ['coredump_003.bin', '1'],
+        ['coredump_004.bin', '0'],
+        ['coredump_005.bin', '1'],
+        ['coredump_008.bin', '2'],
     ]
     
     dados_novos = [
