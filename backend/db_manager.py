@@ -1,4 +1,6 @@
-"""Camada mínima de acesso a dados usando SQLite para armazenar firmwares,
+"""db_manager.py
+
+Camada mínima de acesso a dados usando SQLite para armazenar firmwares,
 devices, clusters e coredumps do backend de extração/classificação.
 
 Fluxo resumido:

@@ -1,8 +1,14 @@
 """coredump_clustering
 
 Orquestra a clusterização de coredumps (snapshot + execução DAMICORE em Docker +
-reconciliação no banco). Fluxo: verifica gatilho (quantidade/tempo) -> gera
-snapshot -> roda DAMICORE -> aplica CSV de clusters -> atualiza estado.
+reconciliação no banco). 
+
+Fluxo: 
+1. verifica gatilho (quantidade/tempo).
+2. gera snapshot.
+3. roda DAMICORE.
+4. aplica CSV de clusters.
+5. atualiza estado.
 
 Formato esperado de cada registro de coredump (tupla retornada pelo `db_manager`):
  (id, mac, firmware_id, cluster_id, <campo4>, raw_dump_path, ...)

@@ -1,4 +1,6 @@
-"""Assinante MQTT para reconstrução e registro de CoreDumps fragmentados.
+"""subscriber.py
+
+Assinante MQTT para reconstrução e registro de CoreDumps fragmentados.
 
 Topologias de tópico:
     BASE_TOPIC/<MAC> -> mensagem JSON inicial {"parts": N}
