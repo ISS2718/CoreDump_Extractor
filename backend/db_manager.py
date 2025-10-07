@@ -13,8 +13,6 @@ def create_database():
     os.makedirs(DB_DIRECTORY, exist_ok=True)
     try:
         with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("""
             CREATE TABLE IF NOT EXISTS firmwares (
                 firmware_id INTEGER PRIMARY KEY AUTOINCREMENT,
