@@ -1,4 +1,4 @@
-"""coredump_clustering
+"""coredump_clusterizer.py
 
 Orquestra a clusterização de coredumps (snapshot + execução DAMICORE em Docker +
 reconciliação no banco). 
