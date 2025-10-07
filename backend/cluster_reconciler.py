@@ -1,56 +1,81 @@
+"""cluster_reconciler.py
+
+Reconciliação e classificação de evolução de clusters (coredumps) entre execuções.
+
+Fluxo resumido: 
+1. lê CSV do clusterizador (linhas: <arquivo>,<cluster_id>).
+2. constrói mapas cluster.
+4. calcula métricas (Jaccard/Overlap).
+5. classifica (evolução, crescimento, divisão, fusão, mudança drástica).
+6. registra resultados.
+
+Variáveis de ambiente relevantes: (nenhuma atualmente). Valores de limiares são constantes internas.
+
+TODO: permitir sobreposição de configuração via variáveis de ambiente.
+TODO: adicionar validação de integridade dos CSV (linhas inválidas / duplicadas).
+"""
+
+from __future__ import annotations
+
+
 import csv
+import logging
 from collections import defaultdict
-from typing import Dict, Set, Tuple, List, Union
+from pathlib import Path
+from typing import Dict, Set, Tuple, List, Union, Optional, Iterable, Any
 
-# --- Configurações ---
-ARQUIVO_ANTIGO = 'antigo.csv'
-ARQUIVO_NOVO = 'novo.csv'
-LIMIAR_SIMILARIDADE = 0.7  # THRESHOLD: 70% de similaridade (Jaccard)
+# -----------------------------------------------------------------------------
+# Constantes configuráveis (limiares e paths de exemplo)
+# -----------------------------------------------------------------------------
+ARQUIVO_ANTIGO: str = "antigo.csv"  # Arquivo CSV origem (ex: execução anterior)
+ARQUIVO_NOVO: str = "novo.csv"      # Arquivo CSV destino (execução atual)
+LIMIAR_SIMILARIDADE: float = 0.7     # Similaridade mínima (Jaccard) para evolução direta
 
-# --- Novos Limiars para abordagem mista ---
-# Se overlap (coef. sobreposição) >= 0.9 e Jaccard >= 0.7 consideramos evolução estável.
-OVERLAP_LIMIAR_CRESCIMENTO = 0.9   # Indica que o cluster antigo está quase totalmente contido no novo.
-JACCARD_LIMIAR_CRESCIMENTO = 0.4   # Jaccard mínimo para ainda considerar crescimento (mesmo que tenha inflado muito).
-OVERLAP_LIMIAR_SPLIT_MAX = 0.6     # Se nenhum novo cluster tem overlap acima disto, pode indicar divisão.
-SPLIT_COBERTURA_MINIMA = 0.8       # Percentual mínimo do cluster antigo coberto pela soma de vários novos para classificar divisão.
-OVERLAP_LIMIAR_MUDANCA = 0.5       # Overlap mínimo para considerar mudança drástica (não desapareceu, não split claro).
-MERGE_OVERLAP_MIN = 0.5            # Overlap mínimo de antigos contribuindo para potencial fusão.
-MERGE_COBERTURA_MIN = 0.8          # Cobertura mínima do novo cluster por vários antigos para marcar fusão.
+# Limiars abordagem mista (Jaccard + Overlap)
+OVERLAP_LIMIAR_CRESCIMENTO: float = 0.9    # Overlap para evolução/crescimento (antigo contido)
+JACCARD_LIMIAR_CRESCIMENTO: float = 0.4    # Jaccard mínimo ainda aceito em crescimento
+OVERLAP_LIMIAR_SPLIT_MAX: float = 0.6      # Nenhum novo acima => pode ser divisão
+SPLIT_COBERTURA_MINIMA: float = 0.8        # Cobertura mínima do antigo por vários novos para split
+OVERLAP_LIMIAR_MUDANCA: float = 0.5        # Overlap mínimo para considerar mudança drástica
+MERGE_OVERLAP_MIN: float = 0.5             # Overlap mínimo de antigos contribuindo para fusão
+MERGE_COBERTURA_MIN: float = 0.8           # Cobertura mínima do novo por vários antigos para fusão
 
-def carregar_clusters_de_arquivo(caminho_arquivo):
-    """
-    Lê um arquivo CSV e o estrutura em um dicionário de clusters.
+# -----------------------------------------------------------------------------
+# Logger
+# -----------------------------------------------------------------------------
+logger = logging.getLogger("backend.cluster_reconciler")
 
-    Args:
-        caminho_arquivo (str): O caminho para o arquivo CSV.
+# -----------------------------------------------------------------------------
+# Type aliases
+# -----------------------------------------------------------------------------
+ClusterMap = Dict[str, Set[str]]
+ReconMap = Dict[str, Dict[str, Union[str, List[str], float, None]]]
 
-    Returns:
-        dict: Um dicionário onde as chaves são os IDs dos clusters e os
-              valores são conjuntos (sets) com os nomes dos arquivos.
-              Ex: {'0': {'file1.bin', 'file2.bin'}}
-    """
-    clusters = defaultdict(set)
+
+def carregar_clusters_de_arquivo(caminho_arquivo: Union[str, Path]) -> Optional[ClusterMap]:
+    """Lê CSV (linhas: <arquivo>,<cluster_id>) e retorna mapa cluster->set(arquivos)."""
+    clusters: Dict[str, Set[str]] = defaultdict(set)
+    path = Path(caminho_arquivo)
     try:
-        with open(caminho_arquivo, 'r', newline='') as f:
+        with path.open("r", newline="") as f:
             leitor_csv = csv.reader(f)
-            for nome_arquivo, cluster_id in leitor_csv:
+            for row in leitor_csv:
+                if len(row) != 2:
+                    # Linha inválida poderia ser descartada; manter log para ajustarmos parser futuramente
+                    logger.warning("Linha ignorada em %s: %s", path, row)
+                    continue
+                nome_arquivo, cluster_id = row
                 clusters[cluster_id.strip()].add(nome_arquivo.strip())
     except FileNotFoundError:
-        print(f"Erro: O arquivo '{caminho_arquivo}' não foi encontrado.")
+        logger.error("Arquivo não encontrado: %s", path)
+        return None
+    except Exception:  # Caso inesperado
+        logger.exception("Falha ao carregar clusters do arquivo: %s", path)
         return None
     return dict(clusters)
 
 def calcular_jaccard(conjunto_a: Set[str], conjunto_b: Set[str]) -> float:
-    """
-    Calcula o Índice de Jaccard entre dois conjuntos.
-
-    Args:
-        conjunto_a (set): O primeiro conjunto de itens.
-        conjunto_b (set): O segundo conjunto de itens.
-
-    Returns:
-        float: O valor do Índice de Jaccard, entre 0.0 e 1.0.
-    """
+    """Retorna índice de Jaccard entre dois conjuntos."""
     intersecao = conjunto_a.intersection(conjunto_b)
     uniao = conjunto_a.union(conjunto_b)
     
@@ -61,15 +86,7 @@ def calcular_jaccard(conjunto_a: Set[str], conjunto_b: Set[str]) -> float:
     return len(intersecao) / len(uniao)
 
 def calcular_coeficiente_sobreposicao(conjunto_a: Set[str], conjunto_b: Set[str]) -> float:
-    """
-    Calcula o Coeficiente de Sobreposição (Szymkiewicz–Simpson) entre dois conjuntos.
-
-    Fórmula: |A ∩ B| / min(|A|, |B|)
-
-    Interpretação:
-        1.0 => Um conjunto está totalmente contido no outro.
-        Alto valor mesmo com Jaccard moderado sugere CRESCIMENTO (o cluster velho foi englobado por um maior).
-    """
+    """Coef. Sobreposição (|A∩B| / min(|A|,|B|))."""
     if not conjunto_a and not conjunto_b:
         return 1.0
     if not conjunto_a or not conjunto_b:
@@ -77,21 +94,12 @@ def calcular_coeficiente_sobreposicao(conjunto_a: Set[str], conjunto_b: Set[str]
     intersecao = conjunto_a.intersection(conjunto_b)
     return len(intersecao) / min(len(conjunto_a), len(conjunto_b))
 
-def reconciliar_clusters(clusters_antigos, clusters_novos, threshold):
-    """
-    Executa o processo de reconciliação para mapear clusters entre duas execuções.
-
-    Args:
-        clusters_antigos (dict): Dicionário de clusters da execução antiga.
-        clusters_novos (dict): Dicionário de clusters da execução nova.
-        threshold (float): Limiar de similaridade Jaccard para considerar um mapeamento.
-
-    Returns:
-        tuple: Uma tupla contendo:
-               - mapeamento_final (dict): Mapeamentos de clusters antigos para novos.
-               - clusters_recem_criados (list): Lista de IDs de clusters novos sem mapeamento.
-               - clusters_desaparecidos (list): Lista de IDs de clusters antigos sem mapeamento.
-    """
+def reconciliar_clusters(
+    clusters_antigos: Optional[ClusterMap],
+    clusters_novos: ClusterMap,
+    threshold: float,
+) -> Tuple[Dict[str, Dict[str, Union[str, float]]], List[str], List[str]]:
+    """Mapeia clusters (Jaccard) entre execuções para evolução simples."""
     # Se clusters_antigos for vazio ou None, todos os clusters_novos são novos
     if not clusters_antigos:
         return {}, list(clusters_novos.keys()), []
@@ -133,8 +141,8 @@ def reconciliar_clusters(clusters_antigos, clusters_novos, threshold):
 
 # ----------------- Abordagem Mista (Jaccard + Coef. Sobreposição) -----------------
 def reconciliar_clusters_misto(
-    clusters_antigos: Dict[str, Set[str]],
-    clusters_novos: Dict[str, Set[str]],
+    clusters_antigos: ClusterMap,
+    clusters_novos: ClusterMap,
     jaccard_limiar: float = LIMIAR_SIMILARIDADE,
     overlap_limiar_crescimento: float = OVERLAP_LIMIAR_CRESCIMENTO,
     jaccard_limiar_crescimento: float = JACCARD_LIMIAR_CRESCIMENTO,
@@ -143,24 +151,8 @@ def reconciliar_clusters_misto(
     overlap_mudanca_min: float = OVERLAP_LIMIAR_MUDANCA,
     merge_overlap_min: float = MERGE_OVERLAP_MIN,
     merge_cobertura_min: float = MERGE_COBERTURA_MIN,
-) -> Tuple[
-    Dict[str, Dict[str, Union[str, List[str], float]]],
-    List[str],
-    List[str],
-    List[Dict[str, Union[str, List[str]]]]
-]:
-    """
-    Reconcilia clusters usando simultaneamente Jaccard e Coef. de Sobreposição,
-    classificando o tipo de evolução.
-
-    Tipos possíveis:
-        - evolucao: mantém estrutura com alta sobreposição e Jaccard alto.
-        - crescimento: overlap alto (antigo contido) mas Jaccard moderado (novo muito maior).
-        - mudanca_drastica: similaridade moderada, mas não encaixa em crescimento/evolução.
-        - divisao: antigo distribuído em vários novos (split).
-        - fundido_em (identificado post-processo se vários antigos formam um novo).
-        - desapareceu / novo (listas separadas).
-    """
+) -> Tuple[ReconMap, List[str], List[str], List[Dict[str, Union[str, List[str], float]]]]:
+    """Classifica evolução de clusters (misto Jaccard+Overlap)."""
     if not clusters_antigos:
         # Tudo é novo
         return {}, list(clusters_novos.keys()), [], []
@@ -293,154 +285,180 @@ def reconciliar_clusters_misto(
 
     return mapeamentos, novos, desaparecidos, fusoes
 
-def exibir_resultados_misto(mapeamentos, novos, desaparecidos, fusoes):
-    print("\n=== Reconciliação Mista (Jaccard + Overlap) ===")
-    if not (mapeamentos or novos or desaparecidos):
-        print("Nada a exibir.")
+def exibir_resultados_misto(
+    mapeamentos: ReconMap,
+    novos: Iterable[str],
+    desaparecidos: Iterable[str],
+    fusoes: Iterable[Dict[str, Any]],
+) -> None:
+    """Loga resumo da reconciliação mista."""
+    logger.info("=== Reconciliação Mista (Jaccard + Overlap) ===")
+    if not (mapeamentos or list(novos) or list(desaparecidos)):
+        logger.info("Sem resultados para exibir.")
         return
 
-    categorias = defaultdict(list)
+    categorias: Dict[str, List[Tuple[str, Dict[str, Union[str, List[str], float, None]]]]] = defaultdict(list)
     for ida, info in mapeamentos.items():
-        categorias[info['tipo']].append((ida, info))
+        categorias[info['tipo']].append((ida, info))  # type: ignore[index]
 
-    ordem = ['evolucao', 'crescimento', 'mudanca_drastica', 'divisao', 'fundido_em']
+    ordem = ["evolucao", "crescimento", "mudanca_drastica", "divisao", "fundido_em"]
     etiquetas = {
-        'evolucao': 'Evolução Estável',
-        'crescimento': 'Crescimento (superset)',
-        'mudanca_drastica': 'Mudança Drástica',
-        'divisao': 'Divisão (Split)',
-        'fundido_em': 'Fusão (Merge)'
+        "evolucao": "Evolução Estável",
+        "crescimento": "Crescimento (superset)",
+        "mudanca_drastica": "Mudança Drástica",
+        "divisao": "Divisão (Split)",
+        "fundido_em": "Fusão (Merge)",
     }
     for cat in ordem:
         if cat in categorias:
-            print(f"\n-- {etiquetas[cat]} --")
+            logger.info("-- %s --", etiquetas[cat])
             for ida, info in categorias[cat]:
-                destino = info['novo_id']
-                jacc = info.get('jaccard')
-                ov = info.get('overlap')
+                destino = info["novo_id"]
+                jacc = info.get("jaccard")
+                ov = info.get("overlap")
                 metricas = []
-                if jacc is not None:
+                if isinstance(jacc, float):
                     metricas.append(f"J={jacc:.2f}")
-                if ov is not None:
+                if isinstance(ov, float):
                     metricas.append(f"O={ov:.2f}")
-                metricas_str = (' [' + ', '.join(metricas) + ']') if metricas else ''
+                metricas_str = f" [{' ,'.join(metricas)}]" if metricas else ""
                 if isinstance(destino, list):
-                    print(f"Cluster antigo '{ida}' -> dividido em {destino}{metricas_str}")
+                    logger.info("Cluster antigo '%s' -> dividido em %s%s", ida, destino, metricas_str)
                 else:
-                    print(f"Cluster antigo '{ida}' -> novo '{destino}' ({info['tipo']}){metricas_str}")
+                    logger.info("Cluster antigo '%s' -> novo '%s' (%s)%s", ida, destino, info['tipo'], metricas_str)
 
-    print("\n-- Clusters Novos (sem mapeamento direto) --")
-    if novos:
-        for n in novos:
-            print(f"Novo cluster: '{n}'")
+    logger.info("-- Clusters Novos (sem mapeamento direto) --")
+    novos_list = list(novos)
+    if novos_list:
+        for n in novos_list:
+            logger.info("Novo cluster: '%s'", n)
     else:
-        print("Nenhum.")
+        logger.info("Nenhum.")
 
-    print("\n-- Clusters Desaparecidos --")
-    if desaparecidos:
-        for d in desaparecidos:
-            print(f"Desapareceu: '{d}'")
+    logger.info("-- Clusters Desaparecidos --")
+    desap_list = list(desaparecidos)
+    if desap_list:
+        for d in desap_list:
+            logger.info("Desapareceu: '%s'", d)
     else:
-        print("Nenhum.")
+        logger.info("Nenhum.")
 
-    print("\n-- Fusões Detectadas (visão agregada) --")
-    if fusoes:
-        for f in fusoes:
-            print(f"Novo cluster '{f['novo_cluster']}' formado por antigos {f['antigos']} (cobertura {f['cobertura']})")
+    logger.info("-- Fusões Detectadas (visão agregada) --")
+    fusoes_list = list(fusoes)
+    if fusoes_list:
+        for f in fusoes_list:
+            logger.info(
+                "Novo cluster '%s' formado por antigos %s (cobertura %.3f)",
+                f["novo_cluster"],
+                f["antigos"],
+                f["cobertura"],
+            )
     else:
-        print("Nenhuma fusão detectada.")
-    print("===============================================")
+        logger.info("Nenhuma fusão detectada.")
+    logger.info("===============================================")
 
-def exibir_resultados(mapeamento, novos, desaparecidos):
-    """Formata e imprime os resultados da reconciliação."""
-    print("\n--- Análise de Reconciliação de Clusters ---")
-    
-    if not mapeamento and not novos and not desaparecidos:
-        print("\nNenhuma informação de cluster para analisar.")
+def exibir_resultados(
+    mapeamento: Dict[str, Dict[str, Union[str, float]]],
+    novos: Iterable[str],
+    desaparecidos: Iterable[str],
+) -> None:
+    """Loga resultados de reconciliação simples."""
+    logger.info("--- Análise de Reconciliação de Clusters ---")
+    if not mapeamento and not list(novos) and not list(desaparecidos):
+        logger.info("Nenhuma informação de cluster para analisar.")
         return
 
-    print("\n-- Mapeamentos Encontrados (Evolução) --")
+    logger.info("-- Mapeamentos Encontrados (Evolução) --")
     if mapeamento:
         for id_antigo, info in mapeamento.items():
-            similaridade_formatada = f"{info['similaridade']:.2f}"
-            print(f"Cluster antigo '{id_antigo}' -> Cluster novo '{info['novo_id']}' (Similaridade Jaccard: {similaridade_formatada})")
+            logger.info(
+                "Cluster antigo '%s' -> Cluster novo '%s' (Jaccard=%.2f)",
+                id_antigo,
+                info['novo_id'],
+                info['similaridade'],
+            )
     else:
-        print("Nenhum mapeamento de evolução encontrado acima do limiar.")
-        
-    print("\n-- Clusters Novos Detectados --")
-    if novos:
-        for id_novo in sorted(novos):
-            print(f"Cluster novo detectado: '{id_novo}'")
+        logger.info("Nenhum mapeamento de evolução encontrado acima do limiar.")
+
+    novos_list = sorted(list(novos))
+    logger.info("-- Clusters Novos Detectados --")
+    if novos_list:
+        for id_novo in novos_list:
+            logger.info("Cluster novo detectado: '%s'", id_novo)
     else:
-        print("Nenhum cluster exclusivamente novo foi detectado.")
-        
-    print("\n-- Clusters Desaparecidos --")
-    if desaparecidos:
-        for id_antigo in sorted(desaparecidos):
-            print(f"Cluster antigo desapareceu: '{id_antigo}'")
+        logger.info("Nenhum cluster exclusivamente novo foi detectado.")
+
+    desaparecidos_list = sorted(list(desaparecidos))
+    logger.info("-- Clusters Desaparecidos --")
+    if desaparecidos_list:
+        for id_antigo in desaparecidos_list:
+            logger.info("Cluster antigo desapareceu: '%s'", id_antigo)
     else:
-        print("Nenhum cluster antigo desapareceu.")
-        
-    print("\n---------------------------------------------")
+        logger.info("Nenhum cluster antigo desapareceu.")
+    logger.info("---------------------------------------------")
 
 # function to create example CSV files for demonstration
-def criar_arquivos_de_exemplo():
-    """Cria os arquivos CSV de exemplo para demonstração."""
-    dados_antigos = [
-        ['coredump_001.bin', '0'],
-        ['coredump_002.bin', '0'],
-        ['coredump_003.bin', '1'],
-        ['coredump_004.bin', '0'],
-        ['coredump_005.bin', '1'],
-        ['coredump_008.bin', '2'],
+def criar_arquivos_de_exemplo() -> None:
+    """Gera CSVs de exemplo para execução isolada local."""
+    dados_antigos: List[List[str]] = [
+        ["coredump_001.bin", "0"],
+        ["coredump_002.bin", "0"],
+        ["coredump_003.bin", "1"],
+        ["coredump_004.bin", "0"],
+        ["coredump_005.bin", "1"],
+        ["coredump_008.bin", "2"],
     ]
-    
-    dados_novos = [
-        ['coredump_001.bin', '1'],
-        ['coredump_002.bin', '1'],
-        ['coredump_003.bin', '0'],
-        ['coredump_004.bin', '1'],
-        ['coredump_005.bin', '0'],
-        ['coredump_006.bin', '2'], # Parte de um cluster novo
-        ['coredump_007.bin', '1'], # Elemento novo em um cluster existente
-        ['coredump_009.bin', '2'], # Parte de um cluster novo
+    dados_novos: List[List[str]] = [
+        ["coredump_001.bin", "1"],
+        ["coredump_002.bin", "1"],
+        ["coredump_003.bin", "0"],
+        ["coredump_004.bin", "1"],
+        ["coredump_005.bin", "0"],
+        ["coredump_006.bin", "2"],  # Novo cluster
+        ["coredump_007.bin", "1"],  # Novo elemento em cluster existente
+        ["coredump_009.bin", "2"],  # Novo cluster
     ]
-    
     try:
-        with open(ARQUIVO_ANTIGO, 'w', newline='') as f:
+        with Path(ARQUIVO_ANTIGO).open("w", newline="") as f:
             writer = csv.writer(f)
             writer.writerows(dados_antigos)
-            
-        with open(ARQUIVO_NOVO, 'w', newline='') as f:
+        with Path(ARQUIVO_NOVO).open("w", newline="") as f:
             writer = csv.writer(f)
             writer.writerows(dados_novos)
-        print("Arquivos de exemplo 'antigo.csv' e 'novo.csv' criados com sucesso.")
-    except IOError as e:
-        print(f"Erro ao criar arquivos de exemplo: {e}")
+        logger.info("Arquivos de exemplo criados: %s, %s", ARQUIVO_ANTIGO, ARQUIVO_NOVO)
+    except IOError:
+        logger.exception("Erro ao criar arquivos de exemplo.")
 
-# --- Bloco de Execução Principal ---
-if __name__ == "__main__":
-    # 1. Cria os arquivos de exemplo para que o script possa ser executado imediatamente
+
+def main() -> None:
+    """Ponto de entrada isolado (evita efeitos colaterais em import)."""
+    # Configuração básica de logging somente se root ainda não configurado
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
     criar_arquivos_de_exemplo()
-
-    # 2. Carrega os dados dos clusters a partir dos arquivos CSV
     clusters_antigos = carregar_clusters_de_arquivo(ARQUIVO_ANTIGO)
     clusters_novos = carregar_clusters_de_arquivo(ARQUIVO_NOVO)
-    
-    # Prossegue apenas se os arquivos foram carregados com sucesso
-    if clusters_antigos is not None and clusters_novos is not None:
-        # 3. Executa a lógica de reconciliação
-        print("\n>>> Resultado modo original (apenas Jaccard)")
-        mapeamento, novos, desaparecidos = reconciliar_clusters(
-            clusters_antigos,
-            clusters_novos,
-            LIMIAR_SIMILARIDADE
-        )
-        exibir_resultados(mapeamento, novos, desaparecidos)
+    if clusters_antigos is None or clusters_novos is None:
+        logger.error("Falha ao carregar dados de clusters. Abortando.")
+        return
 
-        print("\n>>> Resultado modo misto (Jaccard + Overlap)")
-        mapeamentos_misto, novos_m, desaparecidos_m, fusoes_m = reconciliar_clusters_misto(
-            clusters_antigos,
-            clusters_novos
-        )
-        exibir_resultados_misto(mapeamentos_misto, novos_m, desaparecidos_m, fusoes_m)
+    logger.info(
+        "+ Execução modo original (apenas Jaccard) | limiar=%.2f | antigos=%d | novos=%d",
+        LIMIAR_SIMILARIDADE,
+        len(clusters_antigos),
+        len(clusters_novos),
+    )
+    mapeamento, novos, desaparecidos = reconciliar_clusters(
+        clusters_antigos, clusters_novos, LIMIAR_SIMILARIDADE
+    )
+    exibir_resultados(mapeamento, novos, desaparecidos)
+
+    logger.info("+ Execução modo misto (Jaccard + Overlap)")
+    mapeamentos_misto, novos_m, desaparecidos_m, fusoes_m = reconciliar_clusters_misto(
+        clusters_antigos, clusters_novos
+    )
+    exibir_resultados_misto(mapeamentos_misto, novos_m, desaparecidos_m, fusoes_m)
+
+if __name__ == "__main__":  # Execução direta
+    main()
