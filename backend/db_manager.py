@@ -13,6 +13,7 @@ def create_database():
     os.makedirs(DB_DIRECTORY, exist_ok=True)
     try:
         with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("""
             CREATE TABLE IF NOT EXISTS firmwares (
@@ -51,7 +52,8 @@ def create_database():
 def _execute_query(query, params=(), fetch=None):
     """Função auxiliar para executar consultas e evitar repetição de código."""
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             cursor = conn.cursor()
             cursor.execute(query, params)
