@@ -1,4 +1,4 @@
-"""coredump_interpreter
+"""coredump_interpreter.py
 
 Processa um arquivo de coredump bruto (formato raw) usando a ferramenta esp-coredump
 executada dentro de um contêiner Docker da Espressif e gera um relatório texto limpo.
