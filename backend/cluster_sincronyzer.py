@@ -14,9 +14,11 @@ Variáveis de ambiente relevantes: (nenhuma diretamente aqui ainda; limiar poder
 
 TODO: validar formato do CSV antes de processar (headers, colunas).
 TODO: mover limiar de similaridade para configuração externa (env ou DB).
+TODO: trocar critério de nomeação de clusters novos.
+TODO: trocar critério de sobrevivência em fusões (atualmente menor ID).
 """
 
-from __future__ import annotations
+from __future__ import annotationsT
 
 import csv
 import logging
@@ -118,8 +120,9 @@ def aplicar_resultados_reconciliacao(
         
         if not antigos_ids:
             continue
-
-        sobrevivente_id = min(antigos_ids)  # Escolhe menor ID como sobrevivente
+        
+        # Critério atual: menor ID sobrevive
+        sobrevivente_id = min(antigos_ids)
         para_remover_ids = [aid for aid in antigos_ids if aid != sobrevivente_id]
         
         mapeamento[sobrevivente_id] = {
@@ -169,15 +172,26 @@ def aplicar_resultados_reconciliacao(
     for id_antigo_db, info in mapeamento.items():
         id_novo_temp = info["novo_id"]
         
-        # Se houve divisão, pode ser lista de novos IDs (não implementado)
+        # ---- Split (divisão) ----
         if isinstance(id_novo_temp, list):
             for sub_id in id_novo_temp:
                 if sub_id not in mapa_final_temp_para_db:
-                    logger.warning("ID de cluster de divisão '%s' não foi pré-criado. Tratando como novo.", sub_id)
-                    # Lógica de criação de cluster aqui, similar ao PASSO 2...
-                    pass # Adicionar lógica de criação se necessário
-            continue
+                    coredumps_sub = clusters_novos.get(sub_id, set())
+                    if not coredumps_sub:
+                        novo_nome = f"{CLUSTER_NOME_VAZIO_PREFIXO}_{sub_id}_{int(time.time())}"
+                    else:
+                        id_repr = next(iter(coredumps_sub))
+                        novo_nome = gerar_nome_cluster_de_arquivo(id_repr)
 
+                    novo_db_id = add_cluster(novo_nome)
+                    mapa_final_temp_para_db[sub_id] = novo_db_id
+                    logger.info(
+                        "Cluster antigo '%s' dividido: novo cluster criado sub_id=%s db_id=%s nome=%s",
+                        id_antigo_db, sub_id, novo_db_id, novo_nome
+                    )
+            continue  # passa para o próximo cluster antigo
+
+        # ---- Evolução / Crescimento / Mudança Drástica / Fusão ----
         mapa_final_temp_para_db[str(id_novo_temp)] = id_antigo_db
         nome_antigo = get_cluster_name(id_antigo_db)
         logger.debug(
