@@ -1,0 +1,46 @@
+Screen {
+    align: center middle;
+    width: 100%;
+    height: 100%;
+    background: $panel;
+}
+
+#menu-container {
+    width: 50;
+    height: auto;
+    padding: 2;
+    border: solid white;
+    background: $panel;
+    /* Centraliza o container na tela (sintaxe Textual-friendly) */
+    margin: 1 0;
+    align: center middle;
+    /* Garante centralização horizontal dentro do Screen */
+}
+
+#menu-root {
+    width: 100%;
+    align: center middle;
+}
+
+#menu-title {
+    width: 100%;
+    content-align: center middle;
+    padding-bottom: 1;
+}
+
+#menu-container Button {
+    width: 100%;
+    margin: 1 0;
+}
+
+/* Estilo para o footer de ajuda quando presente na tela de menu */
+#help-footer {
+    width: 100%;
+    content-align: center middle;
+    padding-top: 1;
+}
+
+#dashboard-container {
+    padding: 2;
+    align: center middle;
+}

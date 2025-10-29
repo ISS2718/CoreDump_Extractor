@@ -1,0 +1,48 @@
+Screen {
+    align: center middle;
+}
+
+DataTable {
+    height: 80%;
+    width: 100%;
+    margin: 1 2;
+    border: solid yellow;
+}
+
+/* Estilos para o Modal de Adicionar/Editar */
+#dialog {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    padding: 1;
+    background: $panel;
+    border: thick $primary;
+}
+#dialog > Label {
+    width: 100%;
+    margin-bottom: 1;
+    text-style: bold;
+}
+#dialog Input {
+    width: 100%;
+    margin-bottom: 1;
+}
+#buttons {
+    width: 100%;
+    align: right middle;
+    margin-top: 1;
+}
+#buttons > Button {
+    margin-left: 1;
+}
+
+#dialog Static#error_message {
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#dialog Static#error_message Button Label {
+    background: transparent;
+    color: white; 
+}
