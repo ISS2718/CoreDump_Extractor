@@ -10,14 +10,13 @@ Fluxo:
 4. aplica CSV de clusters.
 5. atualiza estado.
 
-Formato esperado de cada registro de coredump (tupla retornada pelo `db_manager`):
+Formato esperado de cada registro de coredump (tupla retornada pelo repositório):
  (id, mac, firmware_id, cluster_id, <campo4>, raw_dump_path, ...)
  O índice 5 deve conter o caminho bruto do arquivo de coredump.
 
 Variáveis de ambiente relevantes: (nenhuma obrigatória por enquanto)
 
 TODO: Permitir sobreposição da imagem Docker via variável de ambiente.
-TODO: Tratar montagem do volume Docker quando o caminho do projeto contém espaços.
 TODO: Tratar montagem do volume Docker quando o caminho do projeto contém espaços.
 """
 
@@ -29,30 +28,26 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Sequence, TypeAlias
+from typing import Any, Optional, Sequence, TypeAlias, Protocol
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s:%(lineno)d %(message)s",
-)
-logger = logging.getLogger("coredump_clustering")
+logger = logging.getLogger("backend.coredump_clusterizer")
 
 # ---------------------------------------------------------------------------
 # Imports dependentes do projeto (atrasados para permitir logging estruturado)
 # ---------------------------------------------------------------------------
 
-try:  # Acesso ao banco de dados de coredumps
-    import db_manager
+try:  # Interface de acesso ao repositório de dados
+    from .ports import IDataRepository
 except ImportError as e:
-    logging.error("Erro ao importar db_manager: %s", e)
+    logging.error("Erro ao importar IDataRepository: %s", e)
     raise SystemExit(1)
 
 try:  # Função que faz a reconciliação / atualização de clusters no banco
-    from cluster_sincronyzer import processar_reconciliacao
+    from .cluster_sincronyzer import processar_reconciliacao
 except ImportError as e:
     logging.error("Erro ao importar cluster_sincronyzer: %s", e)
     raise SystemExit(1)
@@ -85,16 +80,23 @@ DAMICORE_DOCKER_TIMEOUT_S: int = 600
 CoredumpRecord: TypeAlias = Sequence[Any]
 
 
-def check_trigger() -> bool:
-    """Decide se a clusterização deve iniciar (quantidade ou tempo)."""
+def check_trigger(repo: IDataRepository) -> bool:
+    """Decide se a clusterização deve iniciar (quantidade ou tempo).
+    
+    Args:
+        repo: Repositório de dados para acessar coredumps.
+    
+    Returns:
+        True se o gatilho foi ativado, False caso contrário.
+    """
     logger.info("Verificando gatilho de clusterização...")
 
-    all_coredumps = db_manager.list_all_coredumps()
+    all_coredumps = repo.list_all_coredumps()
     if len(all_coredumps) < 2:
         logger.debug("Menos de 2 coredumps registrados. Aguardando acumular mais.")
         return False
 
-    unclustered = db_manager.get_unclustered_coredumps()
+    unclustered = repo.get_unclustered_coredumps()
     unclustered_count = len(unclustered)
     if unclustered_count == 0:
         logger.debug("Nenhum coredump novo desde a última execução.")
@@ -131,15 +133,22 @@ def check_trigger() -> bool:
     return False
 
 
-def prepare_snapshot_directory() -> int:
-    """Gera snapshot local de todos os coredumps (retorna quantidade)."""
+def prepare_snapshot_directory(repo: IDataRepository) -> int:
+    """Gera snapshot local de todos os coredumps (retorna quantidade).
+    
+    Args:
+        repo: Repositório de dados para acessar coredumps.
+    
+    Returns:
+        Número de arquivos copiados para o snapshot.
+    """
     logger.info("Preparando snapshot em '%s'", PROCESSING_DIR)
 
     if PROCESSING_DIR.exists():
         shutil.rmtree(PROCESSING_DIR)
     PROCESSING_DIR.mkdir(parents=True, exist_ok=True)
 
-    all_coredumps: Sequence[CoredumpRecord] = db_manager.list_all_coredumps()
+    all_coredumps: Sequence[CoredumpRecord] = repo.list_all_coredumps()
     if not all_coredumps:
         logger.warning("Nenhum coredump disponível no banco de dados.")
         return 0
@@ -262,22 +271,33 @@ def cleanup(remove_cluster_file: bool = False) -> None:
         logger.debug("Removido arquivo de cluster '%s'", CLUSTER_OUTPUT_FILE)
 
 
-def main() -> None:
-    """Executa uma rodada de clusterização completa se gatilho ativo."""
+def main(repo: IDataRepository) -> None:
+    """Executa uma rodada de clusterização completa se gatilho ativo.
+    
+    Args:
+        repo: Repositório de dados para acessar e atualizar coredumps.
+    """
     logger.info(
         "Iniciando rodada de verificação em %s",
         datetime.now().isoformat(timespec="seconds"),
     )
 
-    db_manager.create_database()  # Garantir estrutura
+    repo.create_database()  # Garantir estrutura
 
-    if not check_trigger():
+    if not check_trigger(repo):
         return
 
     try:
-        copied = prepare_snapshot_directory()
+        copied = prepare_snapshot_directory(repo)
         if copied == 0:
             logger.info("Nenhum arquivo disponível para processar.")
+            return
+        
+        if copied < 2:
+            logger.warning(
+                "DAMICORE requer pelo menos 2 coredumps para clusterização. Encontrados: %d. "
+                "Aguardando mais coredumps...", copied
+            )
             return
 
         if run_damicore_clustering_docker():
@@ -293,8 +313,13 @@ def main() -> None:
 if __name__ == "__main__":
     # Loop contínuo: verifica periodicamente se a clusterização deve rodar.
     # Pode ser substituído por scheduler externo (cron/systemd/airflow/etc.).
+    from .components.data_repository import create_repository
+    
+    repository = create_repository()
+    logger.info("Repositório criado. Iniciando loop de clusterização...")
+    
     while True:  # loop de longa duração
-        main()
+        main(repository)
         logger.info(
             "Aguardando %ds para próxima verificação...", MAIN_LOOP_INTERVAL_SECONDS
         )

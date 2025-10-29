@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  # Serviço 1: Espressif IDF
+  esp-idf:
+    image: espressif/idf:v5.5.1
+    container_name: esp-idf-container
+
+
+  # Serviço 2: Aplicação Python customizada
+  damicore-app:
+    # 'build' instrui o compose a criar a imagem a partir do Dockerfile
+    build:
+      context: ./
+    container_name: damicore-app-container

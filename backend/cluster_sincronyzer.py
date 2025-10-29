@@ -18,7 +18,7 @@ TODO: trocar critério de nomeação de clusters novos.
 TODO: trocar critério de sobrevivência em fusões (atualmente menor ID).
 """
 
-from __future__ import annotationsT
+from __future__ import annotations
 
 import csv
 import logging
@@ -42,7 +42,8 @@ TEST_CSV_PATH: Path = Path("db") / "damicore" / "clusters.csv"
 # Imports de módulos internos (db_manager, jaccard)
 # ---------------------------------------------------------------------------
 try:  # Import explícito para clareza e evitar poluir namespace
-    from db_manager import (
+    from . import db_manager
+    from .db_manager import (
         get_clustered_coredumps,
         get_cluster_name,
         unassign_cluster_from_coredumps,
@@ -57,8 +58,14 @@ except ImportError as exc:  # pragma: no cover - erro crítico de ambiente
     logger.exception("Módulo db_manager não encontrado.")
     raise SystemExit(1) from exc
 
+try:  # Função que gera o nome do cluster
+    from .name_coredump import generate_cluster_name
+except ImportError as e:
+    logging.error("Erro ao importar name_coredump: %s", e)
+    raise SystemExit(1)
+
 try:
-    from cluster_reconciler import reconciliar_clusters_misto
+    from .cluster_reconciler import reconciliar_clusters_misto
   # Função central de matching
 except ImportError as exc:  # pragma: no cover
     logger.exception("Módulo cluster_reconciler não encontrado.")
@@ -87,11 +94,15 @@ def gerar_nome_cluster_de_arquivo(coredump_id: int) -> str:
         logger.exception("Falha ao obter info do coredump id=%s", coredump_id)
         info = None
 
+    logger.debug("Info do coredump id=%s: %s - info[0] = %s", coredump_id, info, info[1])
+
     # Formato esperado (ex): (raw_dump_path, ...)
-    if info and info[0]:  # type: ignore[index]
-        caminho = Path(info[0])  # type: ignore[index]
-        nome_descritivo = f"{CLUSTER_NOME_PREFIXO}_{caminho.stem}"
-        return nome_descritivo
+    if info and info[1]:  # type: ignore[index]
+        caminho = Path(info[1])  # type: ignore[index]
+        # Verifica explicitamente se o caminho termina com .txt
+        if caminho.suffix.lower() == ".txt":
+            nome_descritivo = generate_cluster_name(caminho)
+            return nome_descritivo
 
     timestamp = int(time.time())
     return f"{CLUSTER_NOME_FALLBACK_PREFIXO}_{timestamp}"

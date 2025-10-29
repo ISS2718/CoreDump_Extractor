@@ -204,6 +204,15 @@ def list_firmwares() -> list[tuple[Any, ...]]:
     return _execute_query("SELECT * FROM firmwares", fetch="all") or []  # type: ignore[return-value]
 
 
+def update_firmware_path(firmware_id: int, new_elf_path: str) -> bool:
+    """(NOVO) Atualiza o elf_path de um firmware."""
+    _execute_query(
+        "UPDATE firmwares SET elf_path = ? WHERE firmware_id = ?",
+        (new_elf_path, firmware_id)
+    )
+    return True
+
+
 def delete_firmware(firmware_id: int) -> bool:
     """Remove firmware (falha se existir FK dependente)."""
     logger.info("Deletando firmware id=%s", firmware_id)
@@ -340,11 +349,20 @@ def get_coredump_info_by_id(coredump_id: int) -> Optional[tuple[str, Optional[st
     )  # type: ignore[return-value]
 
 
-def assign_cluster_to_coredump(coredump_id: int, cluster_id: int) -> bool:
-    """Associa cluster a coredump."""
+def assign_cluster_to_coredump(coredump_id: int, cluster_id: Optional[int]) -> bool:
+    """(MODIFICADO) Associa cluster (ou desassocia se cluster_id=None)."""
     _execute_query(
         "UPDATE coredumps SET cluster_id = ? WHERE coredump_id = ?",
         (cluster_id, coredump_id),
+    )
+    return True
+
+
+def update_coredump(coredump_id: int, cluster_id: Optional[int], log_path: Optional[str]) -> bool:
+    """(NOVO) Atualiza o cluster_id e o log_path de um coredump."""
+    _execute_query(
+        "UPDATE coredumps SET cluster_id = ?, log_path = ? WHERE coredump_id = ?",
+        (cluster_id, log_path, coredump_id),
     )
     return True
 
@@ -381,6 +399,10 @@ def _demo() -> None:
     fw_id_1 = add_firmware("SensorApp", "1.0.0", "storage/elfs/SensorApp/1.0.0/firmware.elf")
     fw_id_2 = add_firmware("DisplayApp", "2.1.0", "storage/elfs/DisplayApp/2.1.0/firmware.elf")
     logger.info("Firmwares criados: %s / %s", fw_id_1, fw_id_2)
+    
+    # Teste de update
+    update_firmware_path(fw_id_1 or 0, "storage/elfs/SensorApp/1.0.1/firmware.elf")
+    logger.info("Firmware 1 atualizado")
 
     mac_1 = "AA:BB:CC:11:22:33"
     mac_2 = "DD:EE:FF:44:55:66"
@@ -400,6 +422,10 @@ def _demo() -> None:
     assign_cluster_to_coredump(cd_id_2 or 0, cluster_id_1 or 0)
     assign_cluster_to_coredump(cd_id_3 or 0, cluster_id_2 or 0)
     rename_cluster(cluster_id_1 or 0, "Stack_Overflow_em_MQTT_Task")
+    
+    # Teste de desassociar
+    assign_cluster_to_coredump(cd_id_2 or 0, None)
+    logger.info("Coredump 2 desassociado")
 
     logger.info("Estado final firmwares=%s", list_firmwares())
     logger.info("Estado final devices=%s", list_devices())
