@@ -23,7 +23,20 @@ class IDataRepository(Protocol):
     def get_unclustered_coredumps(self) -> Sequence[Sequence[Any]]:
         ...
 
-    def apply_cluster_csv(self, csv_path: Path) -> None:
+    def get_coredump_info(self, coredump_id: int) -> Optional[tuple[str, Optional[str]]]:
+        """Retorna (raw_dump_path, log_path) para o coredump ID especificado."""
+        ...
+
+    def get_clustered_coredumps(self) -> Sequence[Sequence[Any]]:
+        """Retorna coredumps já associados a clusters (coredump_id, cluster_id)."""
+        ...
+
+    def get_cluster_name(self, cluster_id: int) -> Optional[str]:
+        """Retorna o nome de um cluster pelo ID."""
+        ...
+
+    def assign_cluster_to_coredump(self, coredump_id: int, cluster_id: Optional[int]) -> bool:
+        """Associa um coredump a um cluster (ou desassocia se cluster_id=None)."""
         ...
 
     # CRUD usados pela GUI
@@ -198,5 +211,3 @@ class IFirmwareManagement(Protocol):
     def get_data_repository(self) -> IDataRepository:
         """Retorna acesso ao repositório de dados para operações avançadas."""
         ...
-
-

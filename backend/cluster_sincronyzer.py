@@ -25,7 +25,10 @@ import logging
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, List, MutableMapping, Set, Tuple
+from typing import Dict, Iterable, List, MutableMapping, Set, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .ports import IDataRepository
 
 logger = logging.getLogger("backend.cluster_sincronyzer")
 
@@ -39,25 +42,8 @@ CLUSTER_NOME_FALLBACK_PREFIXO: str = "Cluster_Inesperado"
 TEST_CSV_PATH: Path = Path("db") / "damicore" / "clusters.csv"
 
 # ---------------------------------------------------------------------------
-# Imports de módulos internos (db_manager, jaccard)
+# Imports de módulos internos
 # ---------------------------------------------------------------------------
-try:  # Import explícito para clareza e evitar poluir namespace
-    from . import db_manager
-    from .db_manager import (
-        get_clustered_coredumps,
-        get_cluster_name,
-        unassign_cluster_from_coredumps,
-        delete_cluster,
-        add_cluster,
-        assign_cluster_to_coredump,
-        list_all_coredumps,
-        get_coredump_info_by_id,
-        create_database,
-    )
-except ImportError as exc:  # pragma: no cover - erro crítico de ambiente
-    logger.exception("Módulo db_manager não encontrado.")
-    raise SystemExit(1) from exc
-
 try:  # Função que gera o nome do cluster
     from .name_coredump import generate_cluster_name
 except ImportError as e:
@@ -75,9 +61,13 @@ except ImportError as exc:  # pragma: no cover
 # ---------------------------------------------------------------------------
 # Funções utilitárias principais
 # ---------------------------------------------------------------------------
-def extrair_clusters_do_db() -> Dict[int, Set[int]]:
-    """Retorna clusters atuais do banco no formato {cluster_id: {coredump_ids}}."""
-    clustered_dumps: Iterable[Tuple[int, int]] = get_clustered_coredumps()
+def extrair_clusters_do_db(repo: IDataRepository) -> Dict[int, Set[int]]:
+    """Retorna clusters atuais do banco no formato {cluster_id: {coredump_ids}}.
+    
+    Args:
+        repo: Repositório de dados para acessar coredumps clusterizados
+    """
+    clustered_dumps: Iterable[Tuple[int, int]] = repo.get_clustered_coredumps()
     clusters_antigos: Dict[int, Set[int]] = defaultdict(set)
     for coredump_id, cluster_id in clustered_dumps:
         clusters_antigos[cluster_id].add(coredump_id)
@@ -85,20 +75,28 @@ def extrair_clusters_do_db() -> Dict[int, Set[int]]:
     return dict(clusters_antigos)
 
 
-def gerar_nome_cluster_de_arquivo(coredump_id: int) -> str:
-    """Gera nome para novo cluster usando path do coredump (fallback com timestamp)."""
+def gerar_nome_cluster_de_arquivo(coredump_id: int, repo: IDataRepository) -> str:
+    """Gera nome para novo cluster usando path do coredump (fallback com timestamp).
+    
+    Args:
+        coredump_id: ID do coredump para gerar nome
+        repo: Repositório de dados para buscar informações do coredump
+    
+    Returns:
+        Nome descritivo do cluster baseado no coredump ou fallback com timestamp
+    """
     logger.debug("Gerando nome para cluster a partir do coredump_id=%s", coredump_id)
     try:
-        info = get_coredump_info_by_id(coredump_id)  # Esperado: tuple onde index 0 = raw_dump_path
+        info = repo.get_coredump_info(coredump_id)  # Retorna (raw_dump_path, log_path)
     except Exception:  # pragma: no cover - proteção extra
         logger.exception("Falha ao obter info do coredump id=%s", coredump_id)
         info = None
 
-    logger.debug("Info do coredump id=%s: %s - info[0] = %s", coredump_id, info, info[1])
+    logger.debug("Info do coredump id=%s: %s", coredump_id, info)
 
-    # Formato esperado (ex): (raw_dump_path, ...)
-    if info and info[1]:  # type: ignore[index]
-        caminho = Path(info[1])  # type: ignore[index]
+    # Formato esperado: (raw_dump_path, log_path)
+    if info and info[1]:  # log_path existe
+        caminho = Path(info[1])
         # Verifica explicitamente se o caminho termina com .txt
         if caminho.suffix.lower() == ".txt":
             nome_descritivo = generate_cluster_name(caminho)
@@ -112,11 +110,16 @@ def aplicar_resultados_reconciliacao(
     mapeamento: Dict[int, Dict[str, any]],
     novos: Iterable[str],
     desaparecidos: Iterable[int],
-    fusoes: List[Dict[str, any]],  # <-- NOVO PARÂMETRO
+    fusoes: List[Dict[str, any]],
     coredumps_no_novo_resultado: Dict[int, str],
     clusters_novos: Dict[str, Set[int]],
+    repo: IDataRepository,
 ) -> None:
-    """Aplica mutações no banco: lida com fusões, remove, cria e reatribui clusters."""
+    """Aplica mutações no banco: lida com fusões, remove, cria e reatribui clusters.
+    
+    Args:
+        repo: Repositório de dados para buscar informações dos coredumps
+    """
     logger.info("Aplicando resultados da reconciliação com tratamento de fusões")
 
     # Inicializa conjuntos para rastrear IDs envolvidos em fusões
@@ -157,10 +160,10 @@ def aplicar_resultados_reconciliacao(
     # Remove clusters antigos do banco
     for id_antigo in clusters_a_remover:
         try:
-            nome_cluster = get_cluster_name(id_antigo)
+            nome_cluster = repo.get_cluster_name(id_antigo)
             logger.info("Cluster removido id=%s nome=%s", id_antigo, nome_cluster)
-            unassign_cluster_from_coredumps(id_antigo)
-            delete_cluster(id_antigo)
+            repo.unassign_cluster_from_coredumps(id_antigo)
+            repo.delete_cluster(id_antigo)
         except Exception:
             logger.exception("Falha ao remover cluster (id=%s)", id_antigo)
 
@@ -172,9 +175,9 @@ def aplicar_resultados_reconciliacao(
             novo_nome = f"{CLUSTER_NOME_VAZIO_PREFIXO}_{id_novo_temp}_{int(time.time())}"
         else:
             id_representante = next(iter(coredumps_neste_cluster))
-            novo_nome = gerar_nome_cluster_de_arquivo(id_representante)
+            novo_nome = gerar_nome_cluster_de_arquivo(id_representante, repo)
         
-        novo_db_id = add_cluster(novo_nome)
+        novo_db_id = repo.add_cluster(novo_nome)
         mapa_novo_temp_para_db[id_novo_temp] = novo_db_id
         logger.debug("Cluster novo criado temp_id=%s db_id=%s nome=%s", id_novo_temp, novo_db_id, novo_nome)
 
@@ -192,9 +195,9 @@ def aplicar_resultados_reconciliacao(
                         novo_nome = f"{CLUSTER_NOME_VAZIO_PREFIXO}_{sub_id}_{int(time.time())}"
                     else:
                         id_repr = next(iter(coredumps_sub))
-                        novo_nome = gerar_nome_cluster_de_arquivo(id_repr)
+                        novo_nome = gerar_nome_cluster_de_arquivo(id_repr, repo)
 
-                    novo_db_id = add_cluster(novo_nome)
+                    novo_db_id = repo.add_cluster(novo_nome)
                     mapa_final_temp_para_db[sub_id] = novo_db_id
                     logger.info(
                         "Cluster antigo '%s' dividido: novo cluster criado sub_id=%s db_id=%s nome=%s",
@@ -204,7 +207,7 @@ def aplicar_resultados_reconciliacao(
 
         # ---- Evolução / Crescimento / Mudança Drástica / Fusão ----
         mapa_final_temp_para_db[str(id_novo_temp)] = id_antigo_db
-        nome_antigo = get_cluster_name(id_antigo_db)
+        nome_antigo = repo.get_cluster_name(id_antigo_db)
         logger.debug(
             "Mapeamento de identidade: temp_id=%s herda db_id=%s (nome=%s, tipo=%s)",
             id_novo_temp, id_antigo_db, nome_antigo, info.get('tipo', 'evolucao')
@@ -220,7 +223,7 @@ def aplicar_resultados_reconciliacao(
             )
             continue
         try:
-            assign_cluster_to_coredump(int(coredump_id), db_cluster_id)
+            repo.assign_cluster_to_coredump(int(coredump_id), db_cluster_id)
         except Exception:
             logger.exception(
                 "Falha ao atribuir coredump id=%s ao cluster id=%s",
@@ -230,15 +233,20 @@ def aplicar_resultados_reconciliacao(
 
 def carregar_e_traduzir_clusters_novos(
     caminho_csv: str | Path,
+    repo: IDataRepository,
 ) -> Tuple[Dict[str, Set[int]], Dict[int, str]]:
     """Lê CSV (path, temp_cluster_id) e mapeia para IDs de coredump do banco.
-
+    
+    Args:
+        caminho_csv: Caminho para o arquivo CSV com os clusters
+        repo: Repositório de dados para acessar coredumps
+    
     Retorna (clusters_novos, coredumps_para_cluster).
     """
     caminho = Path(caminho_csv)
     logger.info("Carregando novos clusters de %s", caminho)
 
-    todos_os_coredumps = list_all_coredumps()
+    todos_os_coredumps = repo.list_all_coredumps()
     if not todos_os_coredumps:
         logger.warning("Nenhum coredump presente no banco para mapear.")
         return {}, {}
@@ -288,17 +296,24 @@ def carregar_e_traduzir_clusters_novos(
 
 def processar_reconciliacao(
     caminho_csv_novo: str | Path,
+    repo: IDataRepository,
     similaridade_threshold: float = LIMIAR_SIMILARIDADE,
 ) -> Dict[str, int | str]:
-    """Executa reconciliação completa e retorna sumário (status + contagens)."""
+    """Executa reconciliação completa e retorna sumário (status + contagens).
+    
+    Args:
+        caminho_csv_novo: Caminho para o arquivo CSV com novos clusters
+        repo: Repositório de dados para acessar informações dos coredumps
+        similaridade_threshold: Limiar de similaridade para reconciliação
+    """
     logger.info(
         "Iniciando reconciliação de clusters arquivo=%s limiar=%.2f",
         caminho_csv_novo,
         similaridade_threshold,
     )
-    create_database()  # Garante estrutura
+    repo.create_database()  # Garante estrutura
 
-    clusters_antigos_db = extrair_clusters_do_db()
+    clusters_antigos_db = extrair_clusters_do_db(repo)
     if not clusters_antigos_db:
         logger.info("Não há clusters prévios registrados.")
     else:
@@ -306,11 +321,11 @@ def processar_reconciliacao(
             logger.debug(
                 "Cluster existente id=%s nome=%s tamanho=%s",
                 cluster_id,
-                get_cluster_name(cluster_id),
+                repo.get_cluster_name(cluster_id),
                 len(coredumps),
             )
 
-    clusters_novos, coredumps_no_novo_resultado = carregar_e_traduzir_clusters_novos(caminho_csv_novo)
+    clusters_novos, coredumps_no_novo_resultado = carregar_e_traduzir_clusters_novos(caminho_csv_novo, repo)
     if not clusters_novos:
         logger.warning("Nenhum cluster novo válido carregado; encerrando.")
         return {"status": "finalizado", "mensagem": "Nenhum dado novo para processar."}
@@ -335,14 +350,15 @@ def processar_reconciliacao(
         fusoes,
         coredumps_no_novo_resultado,
         clusters_novos,
+        repo,
     )
 
-    clusters_finais_db = extrair_clusters_do_db()
+    clusters_finais_db = extrair_clusters_do_db(repo)
     for cluster_id, coredumps in clusters_finais_db.items():
         logger.debug(
             "Cluster final id=%s nome=%s tamanho=%s",
             cluster_id,
-            get_cluster_name(cluster_id),
+            repo.get_cluster_name(cluster_id),
             len(coredumps),
         )
 
@@ -363,8 +379,13 @@ def _main() -> None:  # Isola efeitos colaterais de execução direta
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     logger.info("Executando cluster_sincronyzer em modo de teste")
+    
+    # Cria repositório para o teste
+    from .components.data_repository import create_repository
+    repo = create_repository()
+    
     if TEST_CSV_PATH.exists():
-        resultado = processar_reconciliacao(TEST_CSV_PATH)
+        resultado = processar_reconciliacao(TEST_CSV_PATH, repo)
         logger.info("Resultado: %s", resultado)
     else:
         logger.warning("Arquivo de teste não encontrado: %s", TEST_CSV_PATH)

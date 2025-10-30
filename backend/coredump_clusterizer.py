@@ -249,14 +249,19 @@ def _write_state_timestamp(ts: float) -> None:
     tmp_path.replace(STATE_FILE_PATH)
 
 
-def process_clustering_results(path: Optional[str | Path] = None) -> None:
-    """Aplica CSV de clusters no banco e atualiza estado."""
+def process_clustering_results(repo: IDataRepository, path: Optional[str | Path] = None) -> None:
+    """Aplica CSV de clusters no banco e atualiza estado.
+    
+    Args:
+        repo: Repositório de dados para acessar informações dos coredumps
+        path: Caminho opcional para o arquivo CSV (usa padrão se não fornecido)
+    """
     csv_path = Path(path) if path else CLUSTER_OUTPUT_FILE
     logger.info("Processando resultados em '%s'", csv_path)
     if not csv_path.exists():
         logger.error("Arquivo de resultados não encontrado: %s", csv_path)
         return
-    processar_reconciliacao(str(csv_path))
+    processar_reconciliacao(str(csv_path), repo)
     _write_state_timestamp(time.time())
     logger.info("Clusterização concluída e estado atualizado.")
 
@@ -301,7 +306,7 @@ def main(repo: IDataRepository) -> None:
             return
 
         if run_damicore_clustering_docker():
-            process_clustering_results()
+            process_clustering_results(repo)
         else:
             logger.error("Execução da DAMICORE falhou; resultados não aplicados.")
     except Exception as e:  # noqa: BLE001
