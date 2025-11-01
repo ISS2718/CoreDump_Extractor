@@ -132,8 +132,8 @@ void app_main(void) {
     }
     check_and_upload_coredump();
 
-    subscribe_to_topic("device/commands", 2);
-    publish_message("device/start", "Device Ready!", 14, 2);
+    subscribe_to_topic("device/fault_injection", 2);
+    publish_message("device/ready", "Device Ready!", 14, 2);
     while(1) {
         if (xQueueReceive(mqtt_queue, &msg, portMAX_DELAY) == pdTRUE) {
             ESP_LOGI(TAG, "Processando mensagem do tópico %s: %s", msg.topic, msg.payload);
