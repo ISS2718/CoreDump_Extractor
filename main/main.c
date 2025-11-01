@@ -1,5 +1,6 @@
 #include "coredump_uploader.h"
 #include "esp_log.h"
+#include "faults.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "mqtt_app.h"
@@ -138,15 +139,22 @@ void app_main(void) {
             ESP_LOGI(TAG, "Processando mensagem do tópico %s: %s", msg.topic, msg.payload);
             if (strcmp(msg.payload, "IllegalInstructionCause") == 0) {
                 ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de instrução ilegal...");
+                illegal_instruction_start();
             } else if (strcmp(msg.payload, "LoadProhibited") == 0) {
                 ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de acesso a memória inválida...");
+                load_prohibited_start();
             } else if (strcmp(msg.payload, "StoreProhibited") == 0) {
                 ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de escrita em memória inválida...");
+                store_prohibited_start();
             } else if (strcmp(msg.payload, "IntegerDivideByZero") == 0) {
                 ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de divisão por zero...");
+                integer_divide_by_zero_start();
             } else if (strcmp(msg.payload, "Stack Overflow") == 0) {
                 ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de estouro de pilha...");
-            }   
+                stack_overflow_start();
+            } else {
+                ESP_LOGW(TAG, "Comando desconhecido recebido via MQTT: %s", msg.payload);
+            }
         }
         memset(&msg, 0, sizeof(msg));
         vTaskDelay(pdMS_TO_TICKS(100));
