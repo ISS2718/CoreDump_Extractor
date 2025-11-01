@@ -15,17 +15,17 @@ void illegal_instruction_start(void) {
 }
 
 void load_prohibited_start(void) {
-    volatile int *ptr = (int *)0x40000000; // Endereço inválido para causar LoadProhibited
+    volatile int *ptr = NULL; // Endereço inválido para causar LoadProhibited
     ESP_LOGI("LoadProhibited", "Tentando acessar endereço inválido: %p", ptr);
     int value = *ptr; // Acesso inválido
     ESP_LOGI("LoadProhibited", "Valor lido: %d", value); // Nunca será alcançado
 }
 
 void store_prohibited_start(void) {
-    volatile int *ptr = (int *)0x40000000; // Endereço inválido para causar StoreProhibited
+    volatile int *ptr = NULL; // Endereço inválido para causar StoreProhibited
     ESP_LOGI("StoreProhibited", "Tentando escrever no endereço inválido: %p", ptr);
     *ptr = 42; // Escrita inválida
-    ESP_LOGI("StoreProhibited", "Valor escrito: 42"); // Nunca será alcançado
+    ESP_LOGI("StoreProhibited", "Valor escrito: %d", *ptr); // Nunca será alcançado
 }
 
 
