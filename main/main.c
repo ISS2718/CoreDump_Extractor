@@ -1,12 +1,16 @@
 #include "coredump_uploader.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "mqtt_app.h"
 #include "nvs_flash.h"
 #include "wifi.h"
 #include <stdio.h>
 
 static const char *TAG = "APP";
+
+/** Fila para mensagens MQTT recebidas */
+static QueueHandle_t mqtt_queue = NULL;
 
 // Contexto para upload do coredump via MQTT
 typedef struct {
@@ -113,16 +117,38 @@ void app_main(void) {
     ESP_LOGI(TAG, "Inicializando Wi-Fi...");
     if (wifi_init_start() == ESP_OK) {
         ESP_LOGI(TAG, "Inicializando MQTT...");
-        ESP_ERROR_CHECK(mqtt_app_start());
+        mqtt_queue = xQueueCreate(10, sizeof(mqtt_message_t));
+        ESP_ERROR_CHECK(mqtt_app_start(mqtt_queue));
     } else {
         ESP_LOGE(TAG, "Abortando inicialização do MQTT devido a falha no Wi-Fi");
     }
+    mqtt_message_t msg;
+    if (xQueueReceive(mqtt_queue, &msg, portMAX_DELAY) == pdTRUE) {
+        if (strcmp(msg.payload, "client_connected") == 0) {
+            ESP_LOGI(TAG, "Cliente MQTT conectado, iniciando verificação de coredump...");
+        }
+        memset(&msg, 0, sizeof(msg));
+    }
     check_and_upload_coredump();
 
-    // Simula operação normal
-    vTaskDelay(pdMS_TO_TICKS(60000));
-    
-    // Gera um core dump para teste (acesso inválido à memória)
-    int *p = NULL;
-    *p = 42;
+    subscribe_to_topic("device/commands", 2);
+    publish_message("device/start", "Device Ready!", 14, 2);
+    while(1) {
+        if (xQueueReceive(mqtt_queue, &msg, portMAX_DELAY) == pdTRUE) {
+            ESP_LOGI(TAG, "Processando mensagem do tópico %s: %s", msg.topic, msg.payload);
+            if (strcmp(msg.payload, "IllegalInstructionCause") == 0) {
+                ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de instrução ilegal...");
+            } else if (strcmp(msg.payload, "LoadProhibited") == 0) {
+                ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de acesso a memória inválida...");
+            } else if (strcmp(msg.payload, "StoreProhibited") == 0) {
+                ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de escrita em memória inválida...");
+            } else if (strcmp(msg.payload, "IntegerDivideByZero") == 0) {
+                ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de divisão por zero...");
+            } else if (strcmp(msg.payload, "Stack Overflow") == 0) {
+                ESP_LOGW(TAG, "Comando de falha recebido via MQTT. Forçando falha de estouro de pilha...");
+            }   
+        }
+        memset(&msg, 0, sizeof(msg));
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
