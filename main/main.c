@@ -78,9 +78,9 @@ void check_and_upload_coredump(void) {
         };
 
         // Adiciona um identificador único ao tópico, como o MAC address
-        uint8_t mac[6] = {0x16, 0x03, 0x20, 0x25, 0x22, 0x07};
+        uint8_t mac[6] = {0x16, 0x03, 0x25, 0x22, 0x07, 0x02};
         // esp_efuse_mac_get_default(mac);
-        snprintf(mqtt_ctx.topic, sizeof(mqtt_ctx.topic), "coredump/%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        snprintf(mqtt_ctx.topic, sizeof(mqtt_ctx.topic), "coredump/%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
         // 2. Obtém informações do coredump
         coredump_uploader_info_t info;
