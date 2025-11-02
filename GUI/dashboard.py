@@ -111,6 +111,14 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
 
         matplotlib.use(matplotlib.get_backend())
 
+        # Configurar tamanhos de fonte maiores globalmente
+        plt.rcParams['font.size'] = 14
+        plt.rcParams['axes.titlesize'] = 16
+        plt.rcParams['axes.labelsize'] = 14
+        plt.rcParams['xtick.labelsize'] = 12
+        plt.rcParams['ytick.labelsize'] = 12
+        plt.rcParams['legend.fontsize'] = 14
+
         import logging as _logging
         _logging.getLogger().setLevel(_logging.DEBUG)
 
@@ -145,8 +153,9 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             fig, ax = plt.subplots()
             # Usar barras verticais para 'Coredumps por Firmware'
             ax.bar(labels, vals, color="tab:blue")
-            ax.set_ylabel("Coredumps")
-            ax.set_title("Coredumps por Firmware")
+            ax.set_ylabel("Coredumps", fontsize=14)
+            ax.set_title("Coredumps por Firmware", fontsize=16)
+            ax.tick_params(labelsize=12)
             try:
                 # Forçar ticks inteiros no eixo Y (contagens discretas)
                 import matplotlib.ticker as mticker
@@ -156,7 +165,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
                 for rect, v in zip(ax.patches, vals):
                     try:
                         ax.annotate(str(int(v)), xy=(rect.get_x() + rect.get_width() / 2, v),
-                                    xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8)
+                                    xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=14)
                     except Exception:
                         pass
             except Exception:
@@ -181,8 +190,9 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
 
             fig, ax = plt.subplots()
             ax.bar(labels, vals, color="tab:orange")
-            ax.set_ylabel("Tipos de Falha Distintos")
-            ax.set_title("Tipos de Falha por Firmware")
+            ax.set_ylabel("Tipos de Falha Distintos", fontsize=14)
+            ax.set_title("Tipos de Falha por Firmware", fontsize=16)
+            ax.tick_params(labelsize=12)
             try:
                 import matplotlib.ticker as mticker
                 ax.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
@@ -190,7 +200,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
                 for rect, v in zip(ax.patches, vals):
                     try:
                         ax.annotate(str(int(v)), xy=(rect.get_x() + rect.get_width() / 2, v),
-                                    xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8)
+                                    xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=14)
                     except Exception:
                         pass
             except Exception:
@@ -215,8 +225,8 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             labels = [label if len(label) <= 30 else label[:27] + "..." for label in labels]
 
             fig, ax = plt.subplots()
-            ax.pie(vals, labels=labels, autopct="%1.1f%%")
-            ax.set_title("Distribuição de Falhas por Cluster")
+            ax.pie(vals, labels=labels, autopct="%1.1f%%", textprops={'fontsize': 12})
+            ax.set_title("Distribuição de Falhas por Cluster", fontsize=16)
 
         elif chart_key == "time_evolution":
             base = (
@@ -237,8 +247,9 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             xdates = [_dt.datetime.strptime(d, "%Y-%m-%d %H:%M") for d in dates]
             fig, ax = plt.subplots()
             ax.plot(xdates, vals, marker="o")
-            ax.set_title("Evolução Temporal de Coredumps")
-            ax.set_ylabel("Quantidade")
+            ax.set_title("Evolução Temporal de Coredumps", fontsize=16)
+            ax.set_ylabel("Quantidade", fontsize=14)
+            ax.tick_params(labelsize=12)
             try:
                 import matplotlib.ticker as mticker
                 ax.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
@@ -253,7 +264,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             # Anotar pontos com valores inteiros
             try:
                 for x, y in zip(xdates, vals):
-                    ax.annotate(str(int(y)), xy=(x, y), xytext=(0, 5), textcoords='offset points', ha='center', fontsize=8)
+                    ax.annotate(str(int(y)), xy=(x, y), xytext=(0, 5), textcoords='offset points', ha='center', fontsize=14)
             except Exception:
                 pass
 
@@ -275,8 +286,9 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
 
             fig, ax = plt.subplots(figsize=(10, max(4, len(labels) * 0.25)))
             ax.barh(labels, vals, color="tab:green")
-            ax.set_xlabel("Coredumps")
-            ax.set_title("Coredumps por Dispositivo")
+            ax.set_xlabel("Coredumps", fontsize=14)
+            ax.set_title("Coredumps por Dispositivo", fontsize=16)
+            ax.tick_params(labelsize=12)
 
         elif chart_key == "health_overview":
             # Query SQL para calcular as 3 métricas por firmware
@@ -318,16 +330,17 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             bars3 = ax.bar(x + width, total_falhas, width, label='Total de Falhas', color='tab:blue')
             
             # Configurar eixos e título
-            ax.set_xlabel('Versão de Firmware')
-            ax.set_ylabel('Métricas')
-            ax.set_title('Saúde por Firmware')
+            ax.set_xlabel('Versão de Firmware', fontsize=14)
+            ax.set_ylabel('Métricas', fontsize=14)
+            ax.set_title('Saúde por Firmware', fontsize=16)
             ax.set_xticks(x)
-            ax.set_xticklabels(labels, rotation=45, ha='right')
+            ax.set_xticklabels(labels, rotation=0, ha='center')
+            ax.tick_params(labelsize=12)
             if len(labels) == 1:
-                ax.set_xlim(-width * 2.5, width * 2.5)
+                ax.set_xlim(-width * 5, width * 5)
             else:
                 ax.set_xlim(-0.5, len(labels) - 0.5)
-            ax.legend(loc='upper right')
+            ax.legend(loc='lower right', fontsize=14)
             
             # Forçar ticks inteiros no eixo Y
             try:
@@ -345,7 +358,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
                                   xy=(bar.get_x() + bar.get_width() / 2, height),
                                   xytext=(0, 3),
                                   textcoords="offset points",
-                                  ha='center', va='bottom', fontsize=8)
+                                  ha='center', va='bottom', fontsize=14)
 
         else:
             return
@@ -632,6 +645,15 @@ class DashboardScreen(Screen):
             from matplotlib import dates as mdates
 
             matplotlib.use(matplotlib.get_backend())
+            
+            # Configurar tamanhos de fonte maiores globalmente
+            plt.rcParams['font.size'] = 14
+            plt.rcParams['axes.titlesize'] = 16
+            plt.rcParams['axes.labelsize'] = 14
+            plt.rcParams['xtick.labelsize'] = 12
+            plt.rcParams['ytick.labelsize'] = 12
+            plt.rcParams['legend.fontsize'] = 14
+            
             plt.ion()
 
             if chart_key == "coredumps_per_firmware":
@@ -653,8 +675,9 @@ class DashboardScreen(Screen):
                 fig, ax = plt.subplots()
                 # Usar barras verticais para 'Coredumps por Firmware'
                 ax.bar(labels, vals, color="tab:blue")
-                ax.set_ylabel("Coredumps")
-                ax.set_title("Coredumps por Firmware")
+                ax.set_ylabel("Coredumps", fontsize=14)
+                ax.set_title("Coredumps por Firmware", fontsize=16)
+                ax.tick_params(labelsize=12)
                 try:
                     import matplotlib.ticker as mticker
                     ax.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
@@ -662,7 +685,7 @@ class DashboardScreen(Screen):
                     for rect, v in zip(ax.patches, vals):
                         try:
                             ax.annotate(str(int(v)), xy=(rect.get_x() + rect.get_width() / 2, v),
-                                        xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8)
+                                        xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=14)
                         except Exception:
                             pass
                 except Exception:
@@ -686,8 +709,9 @@ class DashboardScreen(Screen):
 
                 fig, ax = plt.subplots()
                 ax.bar(labels, vals, color="tab:orange")
-                ax.set_ylabel("Tipos de Falha Distintos")
-                ax.set_title("Tipos de Falha por Firmware")
+                ax.set_ylabel("Tipos de Falha Distintos", fontsize=14)
+                ax.set_title("Tipos de Falha por Firmware", fontsize=16)
+                ax.tick_params(labelsize=12)
                 try:
                     import matplotlib.ticker as mticker
                     ax.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
@@ -695,7 +719,7 @@ class DashboardScreen(Screen):
                     for rect, v in zip(ax.patches, vals):
                         try:
                             ax.annotate(str(int(v)), xy=(rect.get_x() + rect.get_width() / 2, v),
-                                        xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8)
+                                        xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=14)
                         except Exception:
                             pass
                 except Exception:
@@ -720,8 +744,8 @@ class DashboardScreen(Screen):
                 labels = _truncate_labels(labels, max_length=30)
 
                 fig, ax = plt.subplots()
-                ax.pie(vals, labels=labels, autopct="%1.1f%%")
-                ax.set_title("Distribuição de Falhas por Cluster")
+                ax.pie(vals, labels=labels, autopct="%1.1f%%", textprops={'fontsize': 12})
+                ax.set_title("Distribuição de Falhas por Cluster", fontsize=16)
 
             elif chart_key == "time_evolution":
                 base = (
@@ -743,8 +767,9 @@ class DashboardScreen(Screen):
                 xdates = [datetime.datetime.strptime(d, "%Y-%m-%d %H:%M") for d in dates]
                 fig, ax = plt.subplots()
                 ax.plot(xdates, vals, marker="o")
-                ax.set_title("Evolução Temporal de Coredumps")
-                ax.set_ylabel("Quantidade")
+                ax.set_title("Evolução Temporal de Coredumps", fontsize=16)
+                ax.set_ylabel("Quantidade", fontsize=14)
+                ax.tick_params(labelsize=12)
                 try:
                     import matplotlib.ticker as mticker
                     ax.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
@@ -758,7 +783,7 @@ class DashboardScreen(Screen):
                     pass
                 try:
                     for x, y in zip(xdates, vals):
-                        ax.annotate(str(int(y)), xy=(x, y), xytext=(0, 5), textcoords='offset points', ha='center', fontsize=8)
+                        ax.annotate(str(int(y)), xy=(x, y), xytext=(0, 5), textcoords='offset points', ha='center', fontsize=14)
                 except Exception:
                     pass
 
@@ -779,8 +804,9 @@ class DashboardScreen(Screen):
 
                 fig, ax = plt.subplots(figsize=(10, max(4, len(labels) * 0.25)))
                 ax.barh(labels, vals, color="tab:green")
-                ax.set_xlabel("Coredumps")
-                ax.set_title("Coredumps por Dispositivo (top 50)")
+                ax.set_xlabel("Coredumps", fontsize=14)
+                ax.set_title("Coredumps por Dispositivo (top 50)", fontsize=16)
+                ax.tick_params(labelsize=12)
                 try:
                     import matplotlib.ticker as mticker
                     ax.xaxis.set_major_locator(mticker.MaxNLocator(integer=True))
@@ -788,7 +814,7 @@ class DashboardScreen(Screen):
                     for rect, v in zip(ax.patches, vals):
                         try:
                             ax.annotate(str(int(v)), xy=(v, rect.get_y() + rect.get_height() / 2),
-                                        xytext=(3, 0), textcoords='offset points', va='center', fontsize=8)
+                                        xytext=(3, 0), textcoords='offset points', va='center', fontsize=14)
                         except Exception:
                             pass
                 except Exception:
@@ -818,9 +844,10 @@ class DashboardScreen(Screen):
                 axs[2].bar(labels, tipos, color="tab:orange")
                 titles = ["Total de Falhas", "Dispositivos Afetados", "Tipos de Falha"]
                 for ax, title in zip(axs, titles):
-                    ax.set_title(title)
-                    ax.tick_params(axis='x', rotation=45)
-                fig.suptitle("Visão Consolidada de Saúde por Firmware")
+                    ax.set_title(title, fontsize=16)
+                    ax.tick_params(axis='x', rotation=45, labelsize=12)
+                    ax.tick_params(axis='y', labelsize=12)
+                fig.suptitle("Visão Consolidada de Saúde por Firmware", fontsize=16)
 
 
             else:
