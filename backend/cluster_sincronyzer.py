@@ -251,10 +251,10 @@ def carregar_e_traduzir_clusters_novos(
         logger.warning("Nenhum coredump presente no banco para mapear.")
         return {}, {}
 
-    # Formato esperado de cada linha de list_all_coredumps: (id, mac, fw_id, cluster_id, path, ...)
+    # Formato esperado de cada linha de list_all_coredumps: (id, mac, fw_id, cluster_id, raw_dump_path, log_path, received_at)
     try:
         path_para_id_map: Dict[str, int] = {
-            Path(row[5]).name: int(row[0]) for row in todos_os_coredumps if row and len(row) > 5
+            Path(row[5]).name: int(row[0]) for row in todos_os_coredumps if row and len(row) > 5 and row[5] is not None
         }
     except Exception:  # pragma: no cover
         logger.exception("Falha ao construir mapa path->id a partir dos coredumps.")
