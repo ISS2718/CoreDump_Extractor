@@ -1,0 +1,211 @@
+Crashed task handle: 0x3ffafc78, name: 'main', GDB name: 'process 1073413240'
+Crashed task is not in the interrupt context
+
+================== CURRENT THREAD REGISTERS ===================
+exccause       0x6 (IntegerDivideByZeroCause)
+excvaddr       0x0
+epc1           0x400d5c38
+epc2           0x0
+epc3           0x0
+epc4           0x0
+epc5           0x0
+epc6           0x0
+eps2           0x0
+eps3           0x0
+eps4           0x0
+eps5           0x0
+eps6           0x0
+pc             0x400da1ce          0x400da1ce <integer_divide_by_zero_start+62>
+lbeg           0x400014fd          1073747197
+lend           0x4000150d          1073747213
+lcount         0xfffffffa          4294967290
+sar            0x4                 4
+ps             0x60920             395552
+threadptr      <unavailable>
+br             <unavailable>
+scompare1      <unavailable>
+acclo          <unavailable>
+acchi          <unavailable>
+m0             <unavailable>
+m1             <unavailable>
+m2             <unavailable>
+m3             <unavailable>
+expstate       <unavailable>
+f64r_lo        <unavailable>
+f64r_hi        <unavailable>
+f64s           <unavailable>
+fcr            <unavailable>
+fsr            <unavailable>
+a0             0x800d980b          -2146592757
+a1             0x3ffbadb0          1073458608
+a2             0x2                 2
+a3             0x3f4042c1          1061176001
+a4             0x3f404809          1061177353
+a5             0x3041              12353
+a6             0x2a                42
+a7             0x3f400d78          1061162360
+a8             0x0                 0
+a9             0x3ffbad50          1073458512
+a10            0x3                 3
+a11            0x3f400d78          1061162360
+a12            0x3f405274          1061180020
+a13            0x304b              12363
+a14            0x3f400d78          1061162360
+a15            0x2a                42
+
+==================== CURRENT THREAD STACK =====================
+#0  0x400da1ce in integer_divide_by_zero_start () at C:/Users/isaac/OneDrive/Documentos/_My_Projects/CoreDump_Extractor/main/faults/faults.c:36
+#1  0x400d980b in app_main () at C:/Users/isaac/OneDrive/Documentos/_My_Projects/CoreDump_Extractor/main/main.c:151
+#2  0x40160d86 in main_task (args=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/app_startup.c:208
+#3  0x40088a7c in vPortTaskWrapper (pxCode=0x40160ce0 <main_task>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+======================== THREADS INFO =========================
+  Id   Target Id          Frame 
+* 1    process 1073413240 0x400da1ce in integer_divide_by_zero_start () at C:/Users/isaac/OneDrive/Documentos/_My_Projects/CoreDump_Extractor/main/faults/faults.c:36
+  2    process 1073413596 0x40086aba in esp_cpu_wait_for_intr () at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c:64
+  3    process 1073462368 0x40086aba in esp_cpu_wait_for_intr () at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c:64
+  4    process 1073468380 0x4000bff0 in ?? ()
+  5    process 1073525364 0x4000bff0 in ?? ()
+  6    process 1073410744 0x4000bff0 in ?? ()
+  7    process 1073472372 0x4000bff0 in ?? ()
+  8    process 1073412128 0x4000bff0 in ?? ()
+  9    process 1073412484 0x4000bff0 in ?? ()
+  10   process 1073482692 0x4000bff0 in ?? ()
+
+
+       TCB             NAME PRIO C/B  STACK USED/FREE
+---------- ---------------- -------- ----------------
+0x3ffafc78             main      1/1        2208/1884
+0x3ffafddc            IDLE0      0/0         416/1112
+0x3ffbbc60            IDLE1      0/0         416/1108
+0x3ffbd3dc              tiT    18/18         528/3048
+0x3ffcb274        mqtt_task      5/5         944/5184
+0x3ffaf2b8             ipc0    24/24          448/572
+0x3ffbe374          sys_evt    20/20         544/2256
+0x3ffaf820             ipc1    24/24          448/564
+0x3ffaf984        esp_timer    22/22         448/3632
+0x3ffc0bc4             wifi    23/23         512/6128
+
+==================== THREAD 1 (TCB: 0x3ffafc78, name: 'main') =====================
+#0  0x400da1ce in integer_divide_by_zero_start () at C:/Users/isaac/OneDrive/Documentos/_My_Projects/CoreDump_Extractor/main/faults/faults.c:36
+#1  0x400d980b in app_main () at C:/Users/isaac/OneDrive/Documentos/_My_Projects/CoreDump_Extractor/main/main.c:151
+#2  0x40160d86 in main_task (args=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/app_startup.c:208
+#3  0x40088a7c in vPortTaskWrapper (pxCode=0x40160ce0 <main_task>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 2 (TCB: 0x3ffafddc, name: 'IDLE0') =====================
+#0  0x40086aba in esp_cpu_wait_for_intr () at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c:64
+#1  0x40160094 in esp_vApplicationIdleHook () at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/freertos_hooks.c:58
+#2  0x4008991e in prvIdleTask (pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c:4350
+#3  0x40088a7c in vPortTaskWrapper (pxCode=0x400898a0 <prvIdleTask>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 3 (TCB: 0x3ffbbc60, name: 'IDLE1') =====================
+#0  0x40086aba in esp_cpu_wait_for_intr () at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c:64
+#1  0x40160094 in esp_vApplicationIdleHook () at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/freertos_hooks.c:58
+#2  0x4008991e in prvIdleTask (pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c:4350
+#3  0x40088a7c in vPortTaskWrapper (pxCode=0x400898a0 <prvIdleTask>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 4 (TCB: 0x3ffbd3dc, name: 'tiT') =====================
+#0  0x4000bff0 in ?? ()
+#1  0x40088d16 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:560
+#2  vPortExitCritical (mux=0x3ffbc548) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:514
+#3  0x40088856 in xQueueReceive (xQueue=0x3ffbc4fc, pvBuffer=0x3ffbd320, xTicksToWait=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/queue.c:1632
+#4  0x400ef318 in sys_arch_mbox_fetch (mbox=0x3ffb4ffc <tcpip_mbox>, msg=0x3ffbd320, timeout=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/lwip/port/freertos/sys_arch.c:313
+#5  0x400e264d in tcpip_timeouts_mbox_fetch (mbox=<optimized out>, msg=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/lwip/lwip/src/api/tcpip.c:104
+#6  tcpip_thread (arg=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/lwip/lwip/src/api/tcpip.c:142
+#7  0x40088a7c in vPortTaskWrapper (pxCode=0x400e25fc <tcpip_thread>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 5 (TCB: 0x3ffcb274, name: 'mqtt_task') =====================
+#0  0x4000bff0 in ?? ()
+#1  0x40088d16 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:560
+#2  vPortExitCritical (mux=0x3ffcbb38) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:514
+#3  0x40088939 in xQueueSemaphoreTake (xQueue=0x3ffcbaec, xTicksToWait=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/queue.c:1853
+#4  0x400ef23f in sys_arch_sem_wait (sem=0x3ffcbadc, timeout=1000) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/lwip/port/freertos/sys_arch.c:175
+#5  0x400e22bc in lwip_select (maxfdp1=55, readset=0x3ffcb128, writeset=0x0, exceptset=0x3ffcb120, timeout=0x3ffcb110) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/lwip/lwip/src/api/sockets.c:2142
+#6  0x400d8ea9 in esp_vfs_select (nfds=55, readfds=0x3ffcb128, writefds=0x0, errorfds=0x3ffcb120, timeout=0x3ffcb110) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/vfs/vfs.c:1619
+#7  0x400dd2d8 in base_poll_read (t=0x3ffc815c, timeout_ms=1000) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/tcp_transport/transport_ssl.c:176
+#8  0x40159bce in esp_transport_poll_read (t=<optimized out>, timeout_ms=1000) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/tcp_transport/transport.c:156
+#9  0x400da8ed in esp_mqtt_task (pv=0x3ffc7d30) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/mqtt/esp-mqtt/mqtt_client.c:1819
+#10 0x40088a7c in vPortTaskWrapper (pxCode=0x400da7a8 <esp_mqtt_task>, pvParameters=0x3ffc7d30) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 6 (TCB: 0x3ffaf2b8, name: 'ipc0') =====================
+#0  0x4000bff0 in ?? ()
+#1  0x40088d16 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:560
+#2  vPortExitCritical (mux=0x3ffb0140 <xKernelLock>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:514
+#3  0x4008abfd in ulTaskGenericNotifyTake (uxIndexToWait=0, xClearCountOnExit=1, xTicksToWait=4294967295) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c:5768
+#4  0x4008192d in ipc_task (arg=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/esp_ipc.c:62
+#5  0x40088a7c in vPortTaskWrapper (pxCode=0x400818ec <ipc_task>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 7 (TCB: 0x3ffbe374, name: 'sys_evt') =====================
+#0  0x4000bff0 in ?? ()
+#1  0x40088d16 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:560
+#2  vPortExitCritical (mux=0x3ffbd600) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:514
+#3  0x40088856 in xQueueReceive (xQueue=0x3ffbd5b4, pvBuffer=0x3ffbe280, xTicksToWait=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/queue.c:1632
+#4  0x4015ee88 in esp_event_loop_run (event_loop=0x3ffbd598, ticks_to_run=4294967295) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_event/esp_event.c:644
+#5  0x4015f03a in esp_event_loop_run_task (args=0x3ffbd598) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_event/esp_event.c:106
+#6  0x40088a7c in vPortTaskWrapper (pxCode=0x4015f030 <esp_event_loop_run_task>, pvParameters=0x3ffbd598) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 8 (TCB: 0x3ffaf820, name: 'ipc1') =====================
+#0  0x4000bff0 in ?? ()
+#1  0x40088d16 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:560
+#2  vPortExitCritical (mux=0x3ffb0140 <xKernelLock>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:514
+#3  0x4008abfd in ulTaskGenericNotifyTake (uxIndexToWait=0, xClearCountOnExit=1, xTicksToWait=4294967295) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c:5768
+#4  0x4008192d in ipc_task (arg=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/esp_ipc.c:62
+#5  0x40088a7c in vPortTaskWrapper (pxCode=0x400818ec <ipc_task>, pvParameters=0x1) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 9 (TCB: 0x3ffaf984, name: 'esp_timer') =====================
+#0  0x4000bff0 in ?? ()
+#1  0x40088d16 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:560
+#2  vPortExitCritical (mux=0x3ffb0140 <xKernelLock>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:514
+#3  0x4008abfd in ulTaskGenericNotifyTake (uxIndexToWait=0, xClearCountOnExit=1, xTicksToWait=4294967295) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c:5768
+#4  0x401376b8 in timer_task (arg=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_timer/src/esp_timer.c:459
+#5  0x40088a7c in vPortTaskWrapper (pxCode=0x401376a8 <timer_task>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+==================== THREAD 10 (TCB: 0x3ffc0bc4, name: 'wifi') =====================
+#0  0x4000bff0 in ?? ()
+#1  0x40088d16 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:560
+#2  vPortExitCritical (mux=0x3ffbeaf0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:514
+#3  0x40088856 in xQueueReceive (xQueue=0x3ffbeaa4, pvBuffer=0x3ffc0b00, xTicksToWait=<optimized out>) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/queue.c:1632
+#4  0x401609f8 in queue_recv_wrapper (queue=0x3ffbeaa4, item=0x3ffc0b00, block_time_tick=4294967295) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/esp_wifi/esp32/esp_adapter.c:323
+#5  0x400902a1 in ppTask ()
+#6  0x40088a7c in vPortTaskWrapper (pxCode=0x40090274 <ppTask>, pvParameters=0x0) at C:/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:139
+
+
+======================= ALL MEMORY REGIONS ========================
+Name   Address   Size   Attrs
+.rtc.text 0x400c0000 0x0 RW  
+.rtc.dummy 0x3ff80000 0x0 RW  
+.rtc.force_fast 0x3ff80000 0x0 RW  
+.rtc_noinit 0x50000000 0x0 RW  
+.rtc.force_slow 0x50000000 0x20 RW A
+.rtc_fast_reserved 0x3ff82000 0x0 RW  
+.iram0.vectors 0x40080000 0x404 R XA
+.iram0.text 0x40080404 0x15d7b R XA
+.dram0.data 0x3ffb0000 0x42bc RW A
+.ext_ram_noinit 0x3f800000 0x0 RW  
+.ext_ram.bss 0x3f800000 0x0 RW  
+.flash.appdesc 0x3f400020 0x100 R  A
+.flash.rodata 0x3f400120 0x1db4c RW A
+.flash.text 0x400d0020 0x92ad4 R XA
+.iram0.data 0x40096180 0x0 RW  
+.iram0.bss 0x40096180 0x0 RW  
+.dram0.heap_start 0x3ffb8ca0 0x0 RW  
+.coredump.tasks.data 0x3ffafc78 0x154 RW 
+.coredump.tasks.data 0x3ffbacf0 0x360 RW 
+.coredump.tasks.data 0x3ffafddc 0x154 RW 
+.coredump.tasks.data 0x3ffbb4b0 0x1a0 RW 
+.coredump.tasks.data 0x3ffbbc60 0x154 RW 
+.coredump.tasks.data 0x3ffbbab0 0x1a0 RW 
+.coredump.tasks.data 0x3ffbd3dc 0x154 RW 
+.coredump.tasks.data 0x3ffbd1c0 0x210 RW 
+.coredump.tasks.data 0x3ffcb274 0x154 RW 
+.coredump.tasks.data 0x3ffcaeb0 0x3b0 RW 
+.coredump.tasks.data 0x3ffaf2b8 0x154 RW 
+.coredump.tasks.data 0x3ffaf0f0 0x1c0 RW 
+.coredump.tasks.data 0x3ffbe374 0x154 RW 
+.coredump.tasks.data 0x3ffbe140 0x220 RW 
+.coredump.tasks.data 0x3ffaf820 0x154 RW 
+.coredump.tasks.data 0x3ffaf650 0x1c0 RW 
+.coredump.tasks.data 0x3ffaf984 0x154 RW 
+.coredump.tasks.data 0x3ffb9e80 0x1c0 RW 
+.coredump.tasks.data 0x3ffc0bc4 0x154 RW 
+.coredump.tasks.data 0x3ffc09b0 0x200 RW
