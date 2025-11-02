@@ -310,7 +310,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             fig, ax = plt.subplots(figsize=(12, 6))
             
             x = np.arange(len(labels))  # Posições das versões de firmware
-            width = 0.25  # Largura de cada barra
+            width = 0.125  # Largura de cada barra
             
             # Desenhar as três séries de barras com offset (ordem: Dispositivos, Tipos, Total)
             bars1 = ax.bar(x - width, dispositivos_afetados, width, label='Dispositivos Afetados', color='tab:orange')
@@ -323,6 +323,10 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             ax.set_title('Saúde por Firmware')
             ax.set_xticks(x)
             ax.set_xticklabels(labels, rotation=45, ha='right')
+            if len(labels) == 1:
+                ax.set_xlim(-width * 2.5, width * 2.5)
+            else:
+                ax.set_xlim(-0.5, len(labels) - 0.5)
             ax.legend(loc='upper right')
             
             # Forçar ticks inteiros no eixo Y
