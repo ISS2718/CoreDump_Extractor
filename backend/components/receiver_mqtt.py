@@ -98,22 +98,33 @@ class _Assembler:
         self._sessions: Dict[str, CoreDumpSession] = {}
         self._lock = threading.Lock()
 
-    def start_session(self, mac: str, expected_parts: int) -> None:
+    def start_session(self, mac: str, expected_parts: int) -> bool:
+        """Inicia nova sessão de coredump. Retorna True se criou, False se já existe sessão ativa."""
         with self._lock:
+            existing = self._sessions.get(mac)
+            if existing and not existing.completed:
+                logger.warning("sessao_ja_existe mac=%s expected_parts=%s ignorando", mac, expected_parts)
+                return False
             self._sessions[mac] = CoreDumpSession(mac=mac, expected_parts=expected_parts)
+            return True
 
     def add_part(self, mac: str, index: int, data: bytes) -> Optional[str]:
         with self._lock:
             sess = self._sessions.get(mac)
             if not sess:
                 return None
+            # Verificar se já está completado antes de processar (evita duplicação)
+            if sess.completed:
+                return None
             sess.add_part(index, data)
             if not sess.is_complete():
                 return None
+            # Marcar como completado ANTES de iniciar processamento assíncrono
+            # Isso evita que múltiplas threads processem o mesmo coredump
+            sess.completed = True
             blob = sess.assemble()
             received_at = int(time.time())
             filepath = self._write_coredump(mac, blob, received_at)
-            sess.completed = True
             threading.Thread(
                 target=self._process_and_register,
                 args=(mac, filepath, received_at),
@@ -235,7 +246,9 @@ class MqttReceiver(ICoreDumpIngestor):
                 meta = json.loads(payload.decode("utf-8"))
                 expected = int(meta.get("parts"))
                 if expected > 0:
-                    self.assembler.start_session(mac, expected)
+                    created = self.assembler.start_session(mac, expected)
+                    if not created:
+                        logger.warning("mensagem_meta_duplicada mac=%s expected_parts=%s ignorada", mac, expected)
                 return
             if len(seg) == 3:
                 try:
