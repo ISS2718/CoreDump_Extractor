@@ -206,21 +206,21 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
 
         elif chart_key == "time_evolution":
             base = (
-                "SELECT DATE(received_at, 'unixepoch') AS data, COUNT(*) AS total "
+                "SELECT strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch') AS data, COUNT(*) AS total "
                 "FROM coredumps "
             )
             if filter_values:
                 placeholders = ",".join(["?"] * len(filter_values))
-                sql = base + f"WHERE firmware_id_on_crash IN ({placeholders}) GROUP BY DATE(received_at, 'unixepoch') ORDER BY DATE(received_at, 'unixepoch')"
+                sql = base + f"WHERE firmware_id_on_crash IN ({placeholders}) GROUP BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch') ORDER BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch')"
                 rows = _fetch(sql, tuple(filter_values))
             else:
-                sql = base + "GROUP BY DATE(received_at, 'unixepoch') ORDER BY DATE(received_at, 'unixepoch')"
+                sql = base + "GROUP BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch') ORDER BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch')"
                 rows = _fetch(sql, ())
             dates = [r["data"] for r in rows]
             vals = [r["total"] for r in rows]
 
             import datetime as _dt
-            xdates = [_dt.datetime.strptime(d, "%Y-%m-%d") for d in dates]
+            xdates = [_dt.datetime.strptime(d, "%Y-%m-%d %H:%M") for d in dates]
             fig, ax = plt.subplots()
             ax.plot(xdates, vals, marker="o")
             ax.set_title("Evolução Temporal de Coredumps")
@@ -231,7 +231,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             except Exception:
                 pass
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
             try:
                 plt.xticks(rotation=45, ha="right")
             except Exception:
@@ -639,22 +639,22 @@ class DashboardScreen(Screen):
 
             elif chart_key == "time_evolution":
                 base = (
-                    "SELECT DATE(received_at, 'unixepoch') AS data, COUNT(*) AS total "
+                    "SELECT strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch') AS data, COUNT(*) AS total "
                     "FROM coredumps "
                 )
                 if firmware_ids:
                     placeholders = ",".join(["?"] * len(firmware_ids))
-                    sql = base + f"WHERE firmware_id_on_crash IN ({placeholders}) GROUP BY data ORDER BY data"
+                    sql = base + f"WHERE firmware_id_on_crash IN ({placeholders}) GROUP BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch') ORDER BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch')"
                     rows = _fetch_rows(sql, tuple(firmware_ids))
                 else:
-                    sql = base + "GROUP BY data ORDER BY data"
+                    sql = base + "GROUP BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch') ORDER BY strftime('%Y-%m-%d %H:%M', received_at, 'unixepoch')"
                     rows = _fetch_rows(sql, ())
                 dates = [r["data"] for r in rows]
                 vals = [r["total"] for r in rows]
 
                 # Converter strings para datetimes
                 import datetime
-                xdates = [datetime.datetime.strptime(d, "%Y-%m-%d") for d in dates]
+                xdates = [datetime.datetime.strptime(d, "%Y-%m-%d %H:%M") for d in dates]
                 fig, ax = plt.subplots()
                 ax.plot(xdates, vals, marker="o")
                 ax.set_title("Evolução Temporal de Coredumps")
@@ -665,7 +665,7 @@ class DashboardScreen(Screen):
                 except Exception:
                     pass
                 ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
                 try:
                     plt.xticks(rotation=45, ha="right")
                 except Exception:
