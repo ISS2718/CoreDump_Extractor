@@ -18,7 +18,6 @@ DEVICE_READY_TOPIC: str = os.getenv("DEVICE_START_TOPIC", f"device/ready")
 DEVICE_FAULT_INJECTION_TOPIC: str = os.getenv("DEVICE_FAULT_INJECTION_TOPIC", f"device/fault_injection")
 
 
-global client, client_connected, device_ready
 client: paho.Client | None = None
 client_connected: bool = False
 device_ready: bool = False
@@ -64,6 +63,7 @@ def on_message(client: paho.Client, userdata: any, msg: paho.MQTTMessage) -> Non
     try:
         if msg.topic == DEVICE_READY_TOPIC:
             device_ready = True
+            print("Device pronto recebido")
     except Exception as e:
         print(f"Error processing message: {e}")
 
@@ -84,17 +84,33 @@ if __name__ == "__main__":
 
         times_of_execution = int(input("Digite quantas vezes quer injetar os defeitos: "))
 
-        for _ in range(times_of_execution):
+        total_faults_sent = 0
+        for iteration in range(times_of_execution):
             random.shuffle(faults_list)
-            print(f"Ordem de injeção de defeitos: {faults_list}")
-            for fault in faults_list:
-                while True:
-                    if device_ready:
-                        device_ready = False
-                        print(f"Injetando defeito: {fault}")
-                        client.publish(DEVICE_FAULT_INJECTION_TOPIC, fault, qos=2)
-                        time.sleep(5)  # Aguarda 5 segundos antes de injetar o próximo defeito
-                        break
+            print(f"Ordem de injeção de defeitos (iteração {iteration + 1}/{times_of_execution}): {faults_list}")
+            for fault_index, fault in enumerate(faults_list):
+                # Reseta device_ready antes de esperar
+                device_ready = False
+                print(f"Aguardando device ficar pronto para falha {fault_index + 1}/{len(faults_list)} (iteração {iteration + 1}): {fault}")
+                
+                # Aguarda device ficar pronto com timeout
+                timeout = 0
+                max_wait = 300  # 5 minutos máximo de espera
+                while not device_ready and timeout < max_wait:
+                    time.sleep(0.1)  # Verifica a cada 100ms
+                    timeout += 0.1
+                
+                if not device_ready:
+                    print(f"AVISO: Timeout aguardando device ficar pronto para {fault}. Pulando...")
+                    continue
+                
+                device_ready = False
+                print(f"Injetando defeito: {fault}")
+                client.publish(DEVICE_FAULT_INJECTION_TOPIC, fault, qos=2)
+                total_faults_sent += 1
+                time.sleep(5)  # Aguarda 5 segundos antes de injetar o próximo defeito
+        
+        print(f"\nTotal de defeitos injetados: {total_faults_sent} de {times_of_execution * len(faults_list)} esperados")
             
     except KeyboardInterrupt:
         print("Interrompido pelo usuário")
