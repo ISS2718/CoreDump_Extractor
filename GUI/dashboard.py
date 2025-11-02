@@ -90,6 +90,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
     """
     try:
         import sqlite3 as _sqlite3
+        import numpy as np
         import matplotlib
         import matplotlib.pyplot as plt
         from matplotlib import dates as mdates
@@ -259,6 +260,71 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             ax.barh(labels, vals, color="tab:green")
             ax.set_xlabel("Coredumps")
             ax.set_title("Coredumps por Dispositivo")
+
+        elif chart_key == "health_overview":
+            # Query SQL para calcular as 3 métricas por firmware
+            base = (
+                "SELECT "
+                "f.firmware_id AS firmware_id, "
+                "f.name || ' ' || f.version AS fw, "
+                "COUNT(c.coredump_id) AS total_falhas, "
+                "COUNT(DISTINCT c.device_mac_address) AS dispositivos_afetados, "
+                "COUNT(DISTINCT CASE WHEN c.cluster_id IS NOT NULL THEN c.cluster_id END) AS tipos_falha "
+                "FROM firmwares f "
+                "LEFT JOIN coredumps c ON c.firmware_id_on_crash = f.firmware_id "
+            )
+            if filter_values:
+                placeholders = ",".join(["?"] * len(filter_values))
+                sql = base + f"WHERE f.firmware_id IN ({placeholders}) GROUP BY f.firmware_id, fw ORDER BY f.firmware_id"
+                rows = _fetch(sql, tuple(filter_values))
+            else:
+                sql = base + "GROUP BY f.firmware_id, fw ORDER BY f.firmware_id"
+                rows = _fetch(sql, ())
+            
+            if not rows:
+                return
+            
+            labels = [r["fw"] for r in rows]
+            total_falhas = [r["total_falhas"] for r in rows]
+            dispositivos_afetados = [r["dispositivos_afetados"] for r in rows]
+            tipos_falha = [r["tipos_falha"] for r in rows]
+            
+            # Criar gráfico de barras agrupadas
+            fig, ax = plt.subplots(figsize=(12, 6))
+            
+            x = np.arange(len(labels))  # Posições das versões de firmware
+            width = 0.25  # Largura de cada barra
+            
+            # Desenhar as três séries de barras com offset (ordem: Dispositivos, Tipos, Total)
+            bars1 = ax.bar(x - width, dispositivos_afetados, width, label='Dispositivos Afetados', color='tab:orange')
+            bars2 = ax.bar(x, tipos_falha, width, label='Tipos de Falha', color='tab:green')
+            bars3 = ax.bar(x + width, total_falhas, width, label='Total de Falhas', color='tab:blue')
+            
+            # Configurar eixos e título
+            ax.set_xlabel('Versão de Firmware')
+            ax.set_ylabel('Métricas')
+            ax.set_title('Saúde por Firmware')
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels, rotation=45, ha='right')
+            ax.legend(loc='upper right')
+            
+            # Forçar ticks inteiros no eixo Y
+            try:
+                import matplotlib.ticker as mticker
+                ax.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
+            except Exception:
+                pass
+            
+            # Anotar valores nas barras
+            for bars in [bars1, bars2, bars3]:
+                for bar in bars:
+                    height = bar.get_height()
+                    if height > 0:
+                        ax.annotate(str(int(height)),
+                                  xy=(bar.get_x() + bar.get_width() / 2, height),
+                                  xytext=(0, 3),
+                                  textcoords="offset points",
+                                  ha='center', va='bottom', fontsize=8)
 
         else:
             return
