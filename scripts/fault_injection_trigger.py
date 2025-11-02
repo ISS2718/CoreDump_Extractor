@@ -92,7 +92,7 @@ if __name__ == "__main__":
                     if device_ready:
                         device_ready = False
                         print(f"Injetando defeito: {fault}")
-                        client.publish(f"{BASE_TOPIC}/fault_injection", fault, qos=2)
+                        client.publish(DEVICE_FAULT_INJECTION_TOPIC, fault, qos=2)
                         time.sleep(5)  # Aguarda 5 segundos antes de injetar o próximo defeito
                         break
             
