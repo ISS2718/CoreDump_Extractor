@@ -196,7 +196,7 @@ def run_damicore_clustering_docker(timeout_s: int = DAMICORE_DOCKER_TIMEOUT_S) -
 
     damicore_args = [
         "--compressor",
-        "ppmd",
+        "zlib",
         "--level",
         "9",
         "--output",
