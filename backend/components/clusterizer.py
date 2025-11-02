@@ -23,10 +23,25 @@ class ClusterizerControl(IClusterizerControl):
         self._thread: Optional[threading.Thread] = None
         self._running: bool = False
         self._check_interval: int = 60  # segundos
+        self._execution_lock = threading.Lock()
     
     def run_once(self) -> None:
-        """Executa uma verificação do clusterizador (verifica triggers internos)."""
-        cluster.main(self.repo)
+        """Executa uma verificação do clusterizador (verifica triggers internos).
+        
+        Garante que apenas uma execução ocorra por vez, evitando condições de corrida
+        em chamadas Docker simultâneas. Se outra execução já estiver em andamento,
+        esta chamada é ignorada.
+        """
+        if not self._execution_lock.acquire(blocking=False):
+            logger.warning(
+                "Clusterizador já está em execução, ignorando chamada simultânea"
+            )
+            return
+        
+        try:
+            cluster.main(self.repo)
+        finally:
+            self._execution_lock.release()
     
     def start(self) -> None:
         """Inicia o loop do clusterizador em thread daemon."""
