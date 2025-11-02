@@ -11,8 +11,8 @@ Fluxo:
 5. atualiza estado.
 
 Formato esperado de cada registro de coredump (tupla retornada pelo repositório):
- (id, mac, firmware_id, cluster_id, <campo4>, raw_dump_path, ...)
- O índice 5 deve conter o caminho bruto do arquivo de coredump.
+ (coredump_id, device_mac_address, firmware_id_on_crash, cluster_id, raw_dump_path, log_path, received_at)
+ O índice 5 (log_path) contém o caminho do relatório processado (pode ser None se não foi processado).
 
 Variáveis de ambiente relevantes: (nenhuma obrigatória por enquanto)
 
@@ -60,7 +60,7 @@ except ImportError as e:
 DAMICORE_DOCKER_IMAGE: str = "damicore-python"
 
 # Gatilho híbrido: quantidade mínima de novos coredumps não clusterizados.
-MIN_NEW_COREDUMPS_TRIGGER: int = 5
+MIN_NEW_COREDUMPS_TRIGGER: int = 10
 
 # Tempo máximo (segundos) desde a última execução antes de forçar nova rodada.
 MAX_TIME_SINCE_LAST_RUN_SECONDS: int = 60 * 5  # 5 minutos
@@ -155,11 +155,18 @@ def prepare_snapshot_directory(repo: IDataRepository) -> int:
 
     copied = 0
     for record in all_coredumps:
-        # Esperado índice 5 = caminho do arquivo bruto
+        # Esperado índice 5 = log_path (caminho do relatório processado)
         try:
             source_path_raw = record[5]
         except IndexError:
             logger.warning("Formato inesperado de registro de coredump: %s", record)
+            continue
+
+        # Ignora coredumps sem relatório processado (log_path é None)
+        if source_path_raw is None:
+            logger.warning(
+                "Arquivo ausente para coredump em 'None' (ignorado)"
+            )
             continue
 
         source_path = Path(str(source_path_raw))
@@ -189,7 +196,7 @@ def run_damicore_clustering_docker(timeout_s: int = DAMICORE_DOCKER_TIMEOUT_S) -
 
     damicore_args = [
         "--compressor",
-        "zlib",
+        "ppmd",
         "--level",
         "9",
         "--output",
