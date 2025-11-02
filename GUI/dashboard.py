@@ -82,6 +82,20 @@ def _fetch_rows(sql: str, params: Sequence[Any] | None = None) -> list[sqlite3.R
         conn.close()
 
 
+def _truncate_labels(labels: list[str], max_length: int = 30) -> list[str]:
+    """Trunca labels para um tamanho máximo adicionando '...' se necessário.
+    
+    Args:
+        labels: Lista de strings para truncar
+        max_length: Tamanho máximo da string antes de truncar
+        
+    Returns:
+        Lista de labels truncados
+    """
+    return [label if len(label) <= max_length else label[:max_length-3] + "..." 
+            for label in labels]
+
+
 def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
     """Worker que roda em processo separado e executa a plotagem com matplotlib.
 
@@ -197,6 +211,9 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             labels = [r["cluster_name"] or "(unassigned)" for r in rows]
             vals = [r["total"] for r in rows]
 
+            # Trunca labels longos para melhor visualização
+            labels = [label if len(label) <= 30 else label[:27] + "..." for label in labels]
+
             fig, ax = plt.subplots()
             ax.pie(vals, labels=labels, autopct="%1.1f%%")
             ax.set_title("Distribuição de Falhas por Cluster")
@@ -293,7 +310,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             fig, ax = plt.subplots(figsize=(12, 6))
             
             x = np.arange(len(labels))  # Posições das versões de firmware
-            width = 0.125  # Largura de cada barra (metade do tamanho original)
+            width = 0.25  # Largura de cada barra
             
             # Desenhar as três séries de barras com offset (ordem: Dispositivos, Tipos, Total)
             bars1 = ax.bar(x - width, dispositivos_afetados, width, label='Dispositivos Afetados', color='tab:orange')
@@ -306,13 +323,6 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             ax.set_title('Saúde por Firmware')
             ax.set_xticks(x)
             ax.set_xticklabels(labels, rotation=45, ha='right')
-            # Ajustar limites do eixo X para garantir largura correta das barras
-            # Limita o eixo X para mostrar apenas o espaço necessário para as barras (width * 3 = 0.375)
-            # Com margem mínima de 2*width em cada lado para visualização
-            if len(labels) == 1:
-                ax.set_xlim(-width * 2.5, width * 2.5)
-            else:
-                ax.set_xlim(-0.5, len(labels) - 0.5)
             ax.legend(loc='upper right')
             
             # Forçar ticks inteiros no eixo Y
@@ -701,6 +711,9 @@ class DashboardScreen(Screen):
                     rows = _fetch_rows(sql, ())
                 labels = [r["cluster_name"] or "(unassigned)" for r in rows]
                 vals = [r["total"] for r in rows]
+
+                # Trunca labels longos para melhor visualização
+                labels = _truncate_labels(labels, max_length=30)
 
                 fig, ax = plt.subplots()
                 ax.pie(vals, labels=labels, autopct="%1.1f%%")
