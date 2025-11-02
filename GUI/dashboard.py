@@ -50,9 +50,7 @@ CHART_TYPES = [
     ("distinct_clusters_per_firmware", "Tipos de Falha por Firmware"),
     ("distribution_by_cluster", "Distribuição por Cluster"),
     ("time_evolution", "Evolução Temporal"),
-    ("coredumps_per_device", "Coredumps por Dispositivo (top 50)"),
-    ("normalized_failure_rate", "Taxa de Falhas Normalizada"),
-    ("heatmap_failures", "Mapa de Calor (Hora/Dia)"),
+    ("coredumps_per_device", "Coredumps por Dispositivo"),
     ("health_overview", "Visão Consolidada de Saúde"),
 ]
 
@@ -64,8 +62,6 @@ CHART_FILTER_KIND = {
     "distribution_by_cluster": "firmware",
     "time_evolution": "firmware",
     "coredumps_per_device": "device",
-    "normalized_failure_rate": "firmware",
-    "heatmap_failures": "firmware",
     "health_overview": "firmware",
 }
 
@@ -262,7 +258,7 @@ def _plot_worker(chart_key: str, filter_values: list, db_path: str) -> None:
             fig, ax = plt.subplots(figsize=(10, max(4, len(labels) * 0.25)))
             ax.barh(labels, vals, color="tab:green")
             ax.set_xlabel("Coredumps")
-            ax.set_title("Coredumps por Dispositivo (top 50)")
+            ax.set_title("Coredumps por Dispositivo")
 
         else:
             return
@@ -707,54 +703,6 @@ class DashboardScreen(Screen):
                             pass
                 except Exception:
                     pass
-            
-            elif chart_key == "normalized_failure_rate":
-                sql = """
-                SELECT 
-                    f.name || ' ' || f.version AS fw,
-                    COUNT(c.coredump_id) * 1.0 / COUNT(DISTINCT d.mac_address) AS taxa
-                FROM firmwares f
-                LEFT JOIN coredumps c ON c.firmware_id_on_crash = f.firmware_id
-                LEFT JOIN devices d ON d.current_firmware_id = f.firmware_id
-                GROUP BY f.firmware_id
-                ORDER BY taxa DESC;
-                """
-                rows = _fetch_rows(sql)
-                labels = [r["fw"] for r in rows]
-                vals = [r["taxa"] for r in rows]
-
-                fig, ax = plt.subplots()
-                ax.bar(labels, vals, color="tab:purple")
-                ax.set_ylabel("Falhas por Dispositivo")
-                ax.set_title("Taxa Normalizada de Falhas")
-                plt.xticks(rotation=45, ha="right")
-                for rect, v in zip(ax.patches, vals):
-                    ax.annotate(f"{v:.2f}", xy=(rect.get_x() + rect.get_width() / 2, v),
-                                xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8)
-                    
-            elif chart_key == "heatmap_failures":
-                import numpy as np
-                import seaborn as sns  # requer instalação
-                sql = """
-                SELECT 
-                    STRFTIME('%w', received_at, 'unixepoch') AS dia,
-                    STRFTIME('%H', received_at, 'unixepoch') AS hora,
-                    COUNT(*) AS total
-                FROM coredumps
-                GROUP BY dia, hora;
-                """
-                rows = _fetch_rows(sql)
-                data = np.zeros((7, 24))
-                for r in rows:
-                    dia = int(r["dia"])
-                    hora = int(r["hora"])
-                    data[dia, hora] = r["total"]
-
-                fig, ax = plt.subplots(figsize=(10, 5))
-                sns.heatmap(data, cmap="YlOrRd", ax=ax)
-                ax.set_title("Mapa de Calor de Falhas por Hora/Dia")
-                ax.set_xlabel("Hora do dia")
-                ax.set_ylabel("Dia da semana (0=Dom, 6=Sáb)")
 
             elif chart_key == "health_overview":
                 sql = """
