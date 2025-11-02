@@ -103,20 +103,30 @@ class _Assembler:
         with self._lock:
             existing = self._sessions.get(mac)
             if existing and not existing.completed:
-                logger.warning("sessao_ja_existe mac=%s expected_parts=%s ignorando", mac, expected_parts)
+                logger.warning(
+                    "sessao_ja_existe mac=%s expected_parts=%s partes_recebidas=%d ignorando nova sessão", 
+                    mac, expected_parts, len(existing.parts)
+                )
                 return False
             self._sessions[mac] = CoreDumpSession(mac=mac, expected_parts=expected_parts)
+            logger.debug("sessao_iniciada mac=%s expected_parts=%s", mac, expected_parts)
             return True
 
     def add_part(self, mac: str, index: int, data: bytes) -> Optional[str]:
         with self._lock:
             sess = self._sessions.get(mac)
             if not sess:
+                logger.debug("parte_rejeitada_sem_sessao mac=%s index=%s", mac, index)
                 return None
             # Verificar se já está completado antes de processar (evita duplicação)
             if sess.completed:
+                logger.debug("parte_rejeitada_sessao_completa mac=%s index=%s", mac, index)
                 return None
             sess.add_part(index, data)
+            logger.debug(
+                "parte_adicionada mac=%s index=%s partes_recebidas=%d/%d", 
+                mac, index, len(sess.parts), sess.expected_parts
+            )
             if not sess.is_complete():
                 return None
             # Marcar como completado ANTES de iniciar processamento assíncrono
@@ -125,6 +135,7 @@ class _Assembler:
             blob = sess.assemble()
             received_at = int(time.time())
             filepath = self._write_coredump(mac, blob, received_at)
+            logger.info("coredump_montado mac=%s arquivo=%s tamanho=%d bytes", mac, filepath, len(blob))
             threading.Thread(
                 target=self._process_and_register,
                 args=(mac, filepath, received_at),
@@ -152,27 +163,30 @@ class _Assembler:
 
     def _process_and_register(self, mac: str, coredump_filepath: str, received_at: int) -> None:
         try:
+            logger.debug("processando_coredump mac=%s arquivo=%s", mac, coredump_filepath)
             device_info = self.repo.get_device(mac)
             if not device_info:
-                logger.error("dispositivo.nao_encontrado mac=%s", mac)
+                logger.error("dispositivo.nao_encontrado mac=%s arquivo=%s - coredump não será cadastrado", mac, coredump_filepath)
                 return
             _, firmware_id, chip_type = device_info
             if not firmware_id:
-                logger.error("dispositivo.sem_firmware mac=%s", mac)
+                logger.error("dispositivo.sem_firmware mac=%s arquivo=%s - coredump não será cadastrado", mac, coredump_filepath)
                 return
             fw = self.repo.get_firmware_by_id(int(firmware_id))
             if not fw:
-                logger.error("firmware.nao_encontrado id=%s mac=%s", firmware_id, mac)
+                logger.error("firmware.nao_encontrado id=%s mac=%s arquivo=%s - coredump não será cadastrado", firmware_id, mac, coredump_filepath)
                 return
             elf_path = Path(str(fw[3]))
 
             # Primeiro, registra o coredump bruto
+            logger.debug("inserindo_coredump_banco mac=%s firmware_id=%s arquivo=%s", mac, firmware_id, coredump_filepath)
             coredump_id = self.repo.save_coredump_raw(
                 mac=mac,
                 firmware_id=int(firmware_id),
                 raw_path=Path(coredump_filepath),
                 received_at=received_at,
             )
+            logger.info("coredump_cadastrado coredump_id=%d mac=%s arquivo=%s", coredump_id, mac, coredump_filepath)
 
             # Depois, se possível, gera relatório e atualiza o registro
             if elf_path.exists():
@@ -183,10 +197,11 @@ class _Assembler:
                     chip_type=fw[2] if len(fw) > 2 else None,
                 )
                 self.repo.save_coredump_report(coredump_id=coredump_id, report_path=report)
+                logger.debug("relatorio_gerado coredump_id=%d report=%s", coredump_id, report)
             else:
-                logger.error("elf.inexistente path=%s mac=%s", elf_path, mac)
+                logger.error("elf.inexistente path=%s mac=%s coredump_id=%d", elf_path, mac, coredump_id)
         except Exception:
-            logger.exception("receiver.processamento_excecao mac=%s", mac)
+            logger.exception("receiver.processamento_excecao mac=%s arquivo=%s", mac, coredump_filepath)
 
 
 class MqttReceiver(ICoreDumpIngestor):
