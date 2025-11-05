@@ -1,6 +1,6 @@
 # CoreDump Extractor
 
-Sistema completo para recepção, análise e agrupamento de coredumps de dispositivos ESP32 via MQTT. O projeto inclui uma interface gráfica para gerenciamento de firmwares e dispositivos, dashboard simples de análise e um backend que processa coredumps automaticamente.
+Sistema completo para extração, recepção, análise e agrupamento de coredumps de dispositivos ESP32 via MQTT. O projeto inclui uma interface gráfica para gerenciamento de firmwares e dispositivos, dashboard simples de análise e um backend que processa coredumps automaticamente.
 
 ![Diagrama de Componentes da Arquitetura](docs/images/Component.png)
 
