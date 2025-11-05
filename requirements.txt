@@ -2,3 +2,4 @@ paho-mqtt==2.1.0
 textual==6.3.0
 textual-plotext==1.0.1
 matplotlib==3.10.7
+python-dotenv==1.0.0

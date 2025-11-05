@@ -11,19 +11,35 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from dotenv import load_dotenv
 from paho import mqtt
 import paho.mqtt.client as paho
 
 from ..ports import IDataRepository, ICoreDumpParser, ICoreDumpIngestor
 
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
 
 logger = logging.getLogger("backend.components.receiver_mqtt")
 
+# Variáveis obrigatórias - falham se não estiverem definidas
+MQTT_HOST: str = os.getenv("MQTT_HOST")
+MQTT_PORT_STR: str = os.getenv("MQTT_PORT")
+MQTT_USER: str = os.getenv("MQTT_USER")
+MQTT_PASS: str = os.getenv("MQTT_PASS")
 
-MQTT_HOST: str = os.getenv("MQTT_HOST", "d7dc78b4d42d49e8a71a4edfcfb1d6ca.s1.eu.hivemq.cloud")
-MQTT_PORT: int = int(os.getenv("MQTT_PORT", "8883"))
-MQTT_USER: str = os.getenv("MQTT_USER", "BACKEND-TEST")
-MQTT_PASS: str = os.getenv("MQTT_PASS", "1qxe)y~P9U+57C.!")
+if not MQTT_HOST:
+    raise ValueError("MQTT_HOST não está definido. Configure no arquivo .env ou como variável de ambiente.")
+if not MQTT_PORT_STR:
+    raise ValueError("MQTT_PORT não está definido. Configure no arquivo .env ou como variável de ambiente.")
+if not MQTT_USER:
+    raise ValueError("MQTT_USER não está definido. Configure no arquivo .env ou como variável de ambiente.")
+if not MQTT_PASS:
+    raise ValueError("MQTT_PASS não está definido. Configure no arquivo .env ou como variável de ambiente.")
+
+MQTT_PORT: int = int(MQTT_PORT_STR)
+
+# Variáveis opcionais - com valores padrão
 BASE_TOPIC: str = os.getenv("MQTT_BASE_TOPIC", "coredump")
 SESSION_TIMEOUT: int = int(os.getenv("COREDUMP_TIMEOUT_SECONDS", "600"))
 RAWS_OUTPUT_DIR: Path = Path(os.getenv("COREDUMP_RAWS_OUTPUT_DIR", "db/coredumps/raws"))

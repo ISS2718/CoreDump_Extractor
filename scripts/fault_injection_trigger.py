@@ -6,16 +6,34 @@ import signal
 import threading
 import sys
 
+from dotenv import load_dotenv
 from paho import mqtt
 import random
 import paho.mqtt.client as paho
 
-MQTT_HOST: str = os.getenv("MQTT_HOST", "d7dc78b4d42d49e8a71a4edfcfb1d6ca.s1.eu.hivemq.cloud")
-MQTT_PORT: int = int(os.getenv("MQTT_PORT", "8883"))
-MQTT_USER: str = os.getenv("MQTT_USER", "FAULT_INJECTION_TRIGGER")
-MQTT_PASS: str = os.getenv("MQTT_PASS", "QeKE`B2G7Q8/")
-DEVICE_READY_TOPIC: str = os.getenv("DEVICE_START_TOPIC", f"device/ready")
-DEVICE_FAULT_INJECTION_TOPIC: str = os.getenv("DEVICE_FAULT_INJECTION_TOPIC", f"device/fault_injection")
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
+
+# Variáveis obrigatórias - falham se não estiverem definidas
+MQTT_HOST: str = os.getenv("MQTT_HOST")
+MQTT_PORT_STR: str = os.getenv("MQTT_PORT")
+MQTT_USER: str = os.getenv("MQTT_USER")
+MQTT_PASS: str = os.getenv("MQTT_PASS")
+
+if not MQTT_HOST:
+    raise ValueError("MQTT_HOST não está definido. Configure no arquivo .env ou como variável de ambiente.")
+if not MQTT_PORT_STR:
+    raise ValueError("MQTT_PORT não está definido. Configure no arquivo .env ou como variável de ambiente.")
+if not MQTT_USER:
+    raise ValueError("MQTT_USER não está definido. Configure no arquivo .env ou como variável de ambiente.")
+if not MQTT_PASS:
+    raise ValueError("MQTT_PASS não está definido. Configure no arquivo .env ou como variável de ambiente.")
+
+MQTT_PORT: int = int(MQTT_PORT_STR)
+
+# Variáveis opcionais - com valores padrão
+DEVICE_READY_TOPIC: str = os.getenv("DEVICE_READY_TOPIC", "device/ready")
+DEVICE_FAULT_INJECTION_TOPIC: str = os.getenv("DEVICE_FAULT_INJECTION_TOPIC", "device/fault_injection")
 
 
 client: paho.Client | None = None
