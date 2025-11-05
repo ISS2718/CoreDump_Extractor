@@ -218,8 +218,3 @@ O script:
 ## Banco de dados
 
 ![Diagrama Entidade Relacionameto](docs/images/DER_SQLite3_DB.png)
-
-## 📝 Licença
-
-Projeto de TCC - Engenharia de Computação - USP São Carlos
-
